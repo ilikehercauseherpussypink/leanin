@@ -1,0 +1,651 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$ROOT"
+
+ok()    { printf '> [ok] %s\n' "$*"; }
+skip()  { printf '> [skip] %s\n' "$*"; }
+error() { printf '> [error] %s\n' "$*" >&2; }
+step()  { printf '\n> Etapa %s/%s: %s\n' "$1" "$2" "$3"; }
+
+failures=0
+
+check_file() {
+    if [[ -f $1 ]]; then
+        ok "$1"
+    else
+        error "arquivo ausente: $1"
+        ((failures += 1))
+    fi
+}
+
+app_lines() {
+    local file=$1 line
+    while IFS= read -r line || [[ -n $line ]]; do
+        line=${line#"${line%%[![:space:]]*}"}
+        [[ -z $line || $line == \#* ]] && continue
+        line=${line%%[[:space:]]#*}
+        line=${line%"${line##*[![:space:]]}"}
+        [[ -n $line ]] && printf '%s\n' "$line"
+    done <"$file"
+}
+
+step 1 8 'validando estrutura'
+required=(
+    install.sh README.md CHANGELOG.md LICENSE .gitignore
+    scripts/check scripts/github
+    cloudflare/worker.js cloudflare/wrangler.toml.example cloudflare/README.md
+    lib/log lib/ask lib/env lib/run lib/pkg lib/flatpak lib/aur lib/apps lib/service
+    lib/git lib/ssh lib/gh lib/codex lib/open
+    apps/pacman/base apps/pacman/dev apps/pacman/browsers apps/pacman/audio
+    apps/pacman/privacy apps/pacman/system
+    apps/flatpak/chat apps/flatpak/media apps/flatpak/mail
+    apps/flatpak/privacy apps/flatpak/tools
+    apps/aur/browsers apps/aur/privacy apps/aur/media apps/aur/tools
+    services/system services/user
+)
+for file in "${required[@]}"; do
+    check_file "$file"
+done
+
+step 2 8 'validando sintaxe Bash'
+mapfile -t bash_files < <(printf '%s\n' install.sh scripts/check scripts/github; find lib -maxdepth 1 -type f | sort)
+for file in "${bash_files[@]}"; do
+    if bash -n "$file"; then
+        ok "bash -n $file"
+    else
+        error "sintaxe inválida: $file"
+        ((failures += 1))
+    fi
+done
+
+step 3 8 'validando listas de apps'
+flatpak_pattern='^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){2,}$'
+for file in apps/flatpak/*; do
+    while IFS= read -r app; do
+        if [[ $app == @openai/codex ]]; then
+            error "$file contém @openai/codex"
+            ((failures += 1))
+        elif [[ ! $app =~ $flatpak_pattern ]]; then
+            if ! grep -Fq "$app # archboot: allow-simple" "$file"; then
+                error "$file contém ID Flatpak improvável: $app"
+                ((failures += 1))
+            fi
+        fi
+    done < <(app_lines "$file")
+done
+for source in pacman aur; do
+    for file in "apps/$source"/*; do
+        while IFS= read -r app; do
+            if [[ $app == @openai/codex ]]; then
+                error "$file contém @openai/codex"
+                ((failures += 1))
+            elif [[ $app =~ $flatpak_pattern ]]; then
+                error "$file parece conter ID Flatpak: $app"
+                ((failures += 1))
+            fi
+        done < <(app_lines "$file")
+    done
+done
+(( failures == 0 )) && ok 'listas de apps válidas'
+if grep -Fxq easyeffects apps/pacman/audio; then
+    ok 'EasyEffects está na categoria pacman/audio'
+else
+    error 'EasyEffects ausente de apps/pacman/audio'
+    ((failures += 1))
+fi
+if grep -Fxq mullvad-daemon.service services/system; then
+    ok 'mullvad-daemon.service está em services/system'
+else
+    error 'mullvad-daemon.service ausente de services/system'
+    ((failures += 1))
+fi
+
+step 4 8 'validando regras de segurança'
+forbidden_step=$(printf '%s%s' '==' '>')
+if grep -RFn --exclude-dir=.git -- "$forbidden_step" . >/dev/null 2>&1; then
+    error "prefixo proibido encontrado: $forbidden_step"
+    ((failures += 1))
+else
+    ok 'prefixo de etapas válido'
+fi
+if grep -En 'git[[:space:]]+(diff|status)' install.sh >/dev/null 2>&1; then
+    error 'install.sh contém git diff ou git status'
+    ((failures += 1))
+else
+    ok 'install.sh não imprime diff/status'
+fi
+bootstrap_repo_default="ARCHBOOT_REPO=\${ARCHBOOT_REPO:-https://github.com/ilikehercauseherpussypink/archboot}"
+if grep -Fq "$bootstrap_repo_default" install.sh; then
+    ok 'bootstrap remoto aponta para o repositório publicado'
+else
+    error 'default ARCHBOOT_REPO não aponta para ilikehercauseherpussypink/archboot'
+    ((failures += 1))
+fi
+unsafe_eval=$(printf '%s%s' 'eval' '[[:space:]]')
+if grep -REn "^[[:space:]]*$unsafe_eval" install.sh lib scripts cloudflare >/dev/null 2>&1; then
+    error 'eval inseguro encontrado'
+    ((failures += 1))
+else
+    ok 'nenhum eval inseguro encontrado'
+fi
+
+ssh_test_home=$(mktemp -d)
+trap 'rm -rf -- "$ssh_test_home"' EXIT
+ssh_normalize() {
+    HOME=$ssh_test_home bash -c \
+        'source lib/log; source lib/ssh; _normalize_ssh_key_path "$1"' _ "$1"
+}
+if [[ $(ssh_normalize test) == "$ssh_test_home/.ssh/test" \
+    && $(ssh_normalize keys/personal) == "$ssh_test_home/.ssh/keys/personal" ]] \
+    && ! ssh_normalize ../outside >/dev/null 2>&1 \
+    && ! ssh_normalize /tmp/outside >/dev/null 2>&1; then
+    ok 'caminhos SSH ficam restritos a ~/.ssh'
+else
+    error 'normalização de caminho SSH insegura'
+    ((failures += 1))
+fi
+
+if grep -Fq "GITHUB_KEY_TITLE_DEFAULT='person'" lib/gh; then
+    ok 'título padrão da chave GitHub é person'
+else
+    error 'título padrão person ausente no fluxo GitHub'
+    ((failures += 1))
+fi
+if grep -Fq "yesno 'Deletar TODAS as SSH keys antigas do GitHub?' n" lib/gh \
+    && grep -Fq 'isso remove as SSH keys cadastradas no GitHub, não os arquivos locais' lib/gh \
+    && ! grep -Fq 'Digite DELETE' lib/gh; then
+    ok 'limpeza GitHub usa confirmação única com default não'
+else
+    error 'confirmação GitHub não usa o fluxo s/N esperado'
+    ((failures += 1))
+fi
+if grep -Eq '(rm|unlink)[[:space:]].*(\.ssh|SSH_PRIVATE_KEY|SSH_PUBLIC_KEY)' lib/ssh lib/gh; then
+    error 'fluxo GitHub tenta deletar arquivos SSH locais'
+    ((failures += 1))
+else
+    ok 'fluxo GitHub não deleta arquivos SSH locais'
+fi
+if grep -REn '(^|[[:space:]])(yay|paru|pacman)[[:space:]]+-R' install.sh lib scripts >/dev/null 2>&1; then
+    error 'comando de remoção automática de pacotes encontrado'
+    ((failures += 1))
+else
+    ok 'nenhuma remoção automática de pacotes encontrada'
+fi
+if grep -Fq 'github_manual_ssh_key()' lib/gh \
+    && grep -Fq 'GITHUB_KEYS_URL' lib/gh; then
+    ok 'fallback manual de SSH permanece disponível'
+else
+    error 'fallback manual de SSH ausente'
+    ((failures += 1))
+fi
+
+step 5 8 'validando semântica do dry-run'
+if dry_output=$(bash install.sh --dry-run 2>&1); then
+    dry_fail=0
+    if grep -Fq '[ok] chave SSH criada' <<<"$dry_output"; then
+        error 'dry-run marcou chave SSH como criada'
+        dry_fail=1
+    fi
+    if grep -Fq '[ok] Codex CLI instalado' <<<"$dry_output"; then
+        error 'dry-run marcou Codex CLI como instalado'
+        dry_fail=1
+    fi
+    if grep -Fq 'pacman instalados:' <<<"$dry_output"; then
+        error 'dry-run usou resumo de instalação real'
+        dry_fail=1
+    fi
+    if ! grep -Fq '[ok] pacman: 11 pacotes' <<<"$dry_output" \
+        || ! grep -Fq '[ok] flatpak: 5 apps' <<<"$dry_output" \
+        || ! grep -Fq '[ok] aur: 3 pacotes' <<<"$dry_output" \
+        || ! grep -Fq '[ok] system services: 1 serviço' <<<"$dry_output" \
+        || ! grep -Fq '[ok] user services: 0 serviços' <<<"$dry_output"; then
+        error 'dry-run não mostrou plano resumido por fonte'
+        dry_fail=1
+    fi
+    if grep -Eq '(pacman|flatpak|aur)/(privacy|tools|media|system): 0' <<<"$dry_output"; then
+        error 'dry-run mostrou categorias vazias'
+        dry_fail=1
+    fi
+    if grep -Fq "$forbidden_step" <<<"$dry_output"; then
+        error 'dry-run usou prefixo de etapa proibido'
+        dry_fail=1
+    fi
+    if ! grep -Fq '[dry-run] listaria SSH keys cadastradas no GitHub' <<<"$dry_output" \
+        || ! grep -Fq '[dry-run] deletaria SSH keys antigas do GitHub se confirmado' <<<"$dry_output" \
+        || ! grep -Fq '[dry-run] cadastraria chave SSH no GitHub com título: person' <<<"$dry_output"; then
+        error 'dry-run não descreveu o fluxo de SSH keys do GitHub'
+        dry_fail=1
+    fi
+    if grep -Fq 'GitHub SSH keys: https://github.com/settings/keys' <<<"$dry_output"; then
+        error 'dry-run automático exibiu URL reservada ao fallback manual'
+        dry_fail=1
+    fi
+    if grep -Fq '[ok] chave SSH cadastrada no GitHub' <<<"$dry_output"; then
+        error 'dry-run marcou chave GitHub como cadastrada'
+        dry_fail=1
+    fi
+    if grep -Eq '^ssh-(ed25519|rsa)[[:space:]]+[A-Za-z0-9+/]+' <<<"$dry_output"; then
+        error 'dry-run imprimiu chave pública completa'
+        dry_fail=1
+    fi
+    if ! grep -Fq '> Etapa 8/13: ativando serviços' <<<"$dry_output" \
+        || ! grep -Fq '> Etapa 13/13: resumo' <<<"$dry_output" \
+        || ! grep -Fq '[info] pacman:' <<<"$dry_output" \
+        || ! grep -Fq '[info] serviços:' <<<"$dry_output" \
+        || grep -Fq 'pacman já instalados:' <<<"$dry_output"; then
+        error 'dry-run não usa resumo final curto'
+        dry_fail=1
+    fi
+    if grep -Fq 'Abrir a documentação oficial de Wootility' <<<"$dry_output"; then
+        error 'dry-run ainda pergunta pela documentação Wootility'
+        dry_fail=1
+    fi
+    if ! grep -Fq '[skip] mullvad-vpn-daemon já instalado; pulei mullvad-vpn-bin' <<<"$dry_output" \
+        || grep -Fq '[error] pacote falhou: mullvad-vpn-bin' <<<"$dry_output"; then
+        error 'conflito Mullvad não foi apresentado como skip limpo'
+        dry_fail=1
+    fi
+    if (( dry_fail )); then
+        ((failures += 1))
+    else
+        ok 'dry-run não declara alterações como concluídas'
+    fi
+else
+    error 'install.sh --dry-run falhou'
+    ((failures += 1))
+fi
+
+ssh_add_log="$ssh_test_home/ssh-add.log"
+fake_bin="$ssh_test_home/bin"
+mkdir -p "$fake_bin"
+cat >"$fake_bin/ssh-add" <<'EOF'
+#!/usr/bin/env bash
+printf 'Identity added: %s (mock)\n' "${1:-unknown}"
+EOF
+chmod +x "$fake_bin/ssh-add"
+mkdir -p "$ssh_test_home/.ssh"
+printf 'private mock\n' >"$ssh_test_home/.ssh/id_ed25519"
+printf 'ssh-ed25519 AAAATEST mock@example\n' >"$ssh_test_home/.ssh/id_ed25519.pub"
+if ssh_add_output=$(HOME="$ssh_test_home" PATH="$fake_bin:$PATH" SSH_AUTH_SOCK=mock \
+    bash -c '
+        set -Eeuo pipefail
+        source lib/log
+        source lib/ask
+        source lib/env
+        source lib/run
+        source lib/ssh
+        DRY_RUN=0
+        VERBOSE=0
+        LOG_FILE=$1
+        FAILURES=()
+        CONFIGS_PLANNED=()
+        GIT_EMAIL=mock@example
+        configure_ssh
+    ' _ "$ssh_add_log" 2>&1) \
+    && ! grep -Fq 'Identity added:' <<<"$ssh_add_output" \
+    && grep -Fq 'Identity added:' "$ssh_add_log"; then
+    ok 'ssh-add fica silencioso no modo padrão'
+else
+    error 'ssh-add vazou saída bruta no modo padrão'
+    ((failures += 1))
+fi
+
+gh_marker="$ssh_test_home/gh-called"
+cat >"$fake_bin/gh" <<EOF
+#!/usr/bin/env bash
+touch "$gh_marker"
+exit 99
+EOF
+chmod +x "$fake_bin/gh"
+if github_dry_output=$(HOME="$ssh_test_home" PATH="$fake_bin:$PATH" bash -c '
+    source lib/log
+    source lib/ask
+    source lib/env
+    source lib/run
+    source lib/open
+    source lib/gh
+    DRY_RUN=1
+    VERBOSE=0
+    LOG_FILE=/dev/null
+    CONFIGS_PLANNED=()
+    FAILURES=()
+    github_manage_ssh_key "$HOME/.ssh/test.pub"
+' 2>&1) \
+    && [[ ! -e $gh_marker ]] \
+    && ! grep -Fq 'gh ssh-key delete' <<<"$github_dry_output" \
+    && ! grep -Fq 'gh ssh-key add' <<<"$github_dry_output"; then
+    ok 'dry-run não executa gh ssh-key delete/add'
+else
+    error 'dry-run invocou uma operação gh mutável'
+    ((failures += 1))
+fi
+
+mock_title=$(printf '%s' 'person laptop' | base64 -w0)
+mock_key=$(printf '%s' 'ssh-ed25519 AAAATEST mock@example' | base64 -w0)
+cat >"$fake_bin/gh" <<EOF
+#!/usr/bin/env bash
+case "\${GH_MOCK_MODE:-empty}" in
+    empty)
+        exit 0
+        ;;
+    one)
+        printf 'unexpected\tline\n'
+        printf '123\t%s\t%s\n' '$mock_title' '$mock_key'
+        ;;
+    fail)
+        printf 'mock API failure\n' >&2
+        exit 1
+        ;;
+    *)
+        exit 2
+        ;;
+esac
+EOF
+chmod +x "$fake_bin/gh"
+
+github_list_mock() {
+    local mode=$1
+    HOME="$ssh_test_home" PATH="$fake_bin:$PATH" GH_MOCK_MODE=$mode bash -c '
+        set -Eeuo pipefail
+        source lib/log
+        source lib/run
+        source lib/gh
+        DRY_RUN=0
+        VERBOSE=0
+        LOG_FILE=/dev/null
+        FAILURES=()
+        CONFIGS_PLANNED=()
+
+        case "$1" in
+            empty)
+                github_list_ssh_keys
+                ((${#GITHUB_KEY_IDS[@]} == 0))
+                ;;
+            one)
+                github_list_ssh_keys
+                ((${#GITHUB_KEY_IDS[@]} == 1))
+                [[ ${GITHUB_KEY_IDS[0]} == 123 ]]
+                [[ ${GITHUB_KEY_TITLES[0]} == "person laptop" ]]
+                [[ ${GITHUB_KEY_VALUES[0]} == "ssh-ed25519 AAAATEST mock@example" ]]
+                ;;
+            fail)
+                if github_list_ssh_keys; then
+                    exit 1
+                fi
+                ((${#GITHUB_KEY_IDS[@]} == 0))
+                [[ $GITHUB_OLD_KEYS_STATUS == "não verificadas" ]]
+                ;;
+        esac
+    ' _ "$mode"
+}
+
+if github_list_mock empty >/dev/null 2>&1 \
+    && github_list_mock one >/dev/null 2>&1 \
+    && github_list_mock fail >/dev/null 2>&1; then
+    ok 'listagem GitHub suporta API vazia, uma chave e falha controlada'
+else
+    error 'mock da listagem GitHub falhou sob set -u'
+    ((failures += 1))
+fi
+
+github_delete_mock() {
+    local answer=$1
+    local marker="$ssh_test_home/github-delete-$answer"
+    rm -f "$marker"
+    HOME="$ssh_test_home" ANSWER="$answer" MARKER="$marker" bash -c '
+        set -Eeuo pipefail
+        source lib/log
+        source lib/gh
+        VERBOSE=0
+        DRY_RUN=0
+        LOG_FILE=/dev/null
+        FAILURES=()
+        GITHUB_KEY_IDS=(123)
+        GITHUB_KEY_TITLES=("old key")
+        GITHUB_KEY_VALUES=("ssh-ed25519 AAAAOLD")
+        yesno() {
+            [[ $1 == "Deletar TODAS as SSH keys antigas do GitHub?" ]]
+            [[ $2 == n ]]
+            [[ $ANSWER == yes ]]
+        }
+        run_cmd() {
+            shift
+            printf "%s\n" "$*" >>"$MARKER"
+        }
+        github_delete_ssh_keys
+        if [[ $ANSWER == no ]]; then
+            [[ ! -e $MARKER ]]
+            [[ $GITHUB_OLD_KEYS_STATUS == mantidas ]]
+            ((${#GITHUB_KEY_IDS[@]} == 1))
+        else
+            grep -Fqx "gh ssh-key delete 123 --yes" "$MARKER"
+            [[ $GITHUB_OLD_KEYS_STATUS == removidas ]]
+            ((${#GITHUB_KEY_IDS[@]} == 0))
+        fi
+    '
+}
+
+if github_delete_mock no >/dev/null 2>&1 \
+    && github_delete_mock yes >/dev/null 2>&1; then
+    ok 'limpeza GitHub respeita respostas não e sim'
+else
+    error 'limpeza GitHub não respeitou confirmação s/N'
+    ((failures += 1))
+fi
+
+service_mock() {
+    local mode=$1
+    local marker="$ssh_test_home/service-$mode"
+    rm -f "$marker"
+    HOME="$ssh_test_home" MODE="$mode" MARKER="$marker" bash -c '
+        set -Eeuo pipefail
+        source lib/log
+        source lib/service
+        VERBOSE=0
+        DRY_RUN=0
+        [[ $MODE == dry ]] && DRY_RUN=1
+        LOG_FILE=/dev/null
+        FAILURES=()
+        CONFIGS_PLANNED=()
+        systemctl() {
+            case ${1:-} in
+                cat)
+                    [[ $MODE != missing ]]
+                    ;;
+                is-enabled|is-active)
+                    [[ $MODE == active ]]
+                    ;;
+                *)
+                    return 1
+                    ;;
+            esac
+        }
+        run_sudo() {
+            shift
+            printf "%s\n" "$*" >>"$MARKER"
+        }
+        run_cmd() {
+            shift
+            printf "%s\n" "$*" >>"$MARKER"
+        }
+        service_enable system mullvad-daemon.service
+        case $MODE in
+            existing)
+                ((${#SERVICES_ACTIVATED[@]} == 1))
+                ;;
+            missing)
+                ((${#SERVICES_SKIPPED[@]} == 1))
+                [[ ! -e $MARKER ]]
+                ;;
+            active)
+                ((${#SERVICES_ALREADY[@]} == 1))
+                [[ ! -e $MARKER ]]
+                ;;
+            dry)
+                ((${#SERVICES_PLANNED[@]} == 1))
+                grep -Fqx "systemctl enable --now mullvad-daemon.service" "$MARKER"
+                ;;
+        esac
+        ((${#FAILURES[@]} == 0))
+    '
+}
+
+if service_mock existing >/dev/null 2>&1 \
+    && service_mock missing >/dev/null 2>&1 \
+    && service_mock active >/dev/null 2>&1 \
+    && service_mock dry >/dev/null 2>&1; then
+    ok 'serviços suportam existente, ausente, ativo e dry-run'
+else
+    error 'mock modular de serviços falhou'
+    ((failures += 1))
+fi
+
+if bash -c '
+    set -Eeuo pipefail
+    source lib/log
+    source lib/aur
+    DRY_RUN=0
+    VERBOSE=0
+    PACMAN_BLOCKED=0
+    AUR_HELPER=yay
+    LOG_FILE=/dev/null
+    FAILURES=()
+    AUR_INSTALLED=()
+    AUR_SKIPPED=()
+    AUR_PLANNED=()
+    AUR_ALREADY=()
+    pacman() {
+        [[ ${1:-} == -Qq && ${2:-} == mullvad-vpn-daemon ]]
+    }
+    run_cmd() {
+        exit 90
+    }
+    install mullvad-vpn-bin
+    ((${#FAILURES[@]} == 0))
+    ((${#AUR_SKIPPED[@]} == 1))
+    [[ ${AUR_SKIPPED[0]} == mullvad-vpn-bin ]]
+' >/dev/null 2>&1; then
+    ok 'Mullvad existente bloqueia variante conflitante sem falha'
+else
+    error 'proteção contra conflito Mullvad falhou'
+    ((failures += 1))
+fi
+
+step 6 8 'validando Cloudflare Worker'
+worker=cloudflare/worker.js
+worker_fail=0
+worker_tokens=(
+    '"GET"'
+    '"HEAD"'
+    '"/health"'
+    'method,'
+    'text/x-shellscript; charset=utf-8'
+    'X-Content-Type-Options'
+    "raw.githubusercontent.com/\${owner}/\${repo}/\${branch}/install.sh"
+    'env.OWNER'
+    'env.REPO'
+    'env.BRANCH'
+    'OWNER: "ilikehercauseherpussypink"'
+    'REPO: "archboot"'
+    'BRANCH: "main"'
+)
+for token in "${worker_tokens[@]}"; do
+    if ! grep -Fq "$token" "$worker"; then
+        error "Worker não contém requisito: $token"
+        worker_fail=1
+    fi
+done
+upstream_assignment="const upstreamUrl = \`https://raw.githubusercontent.com/\${owner}/\${repo}/\${branch}/install.sh\`;"
+if ! grep -Fq "$upstream_assignment" "$worker"; then
+    error 'Worker não monta a URL upstream em uma única linha exata'
+    worker_fail=1
+fi
+if awk '
+    /raw\.githubusercontent\.com\/\$\{owner\}\// && $0 !~ /\$\{repo\}/ {
+        if ((getline next_line) > 0 && next_line ~ /\$\{repo\}/) {
+            found = 1
+        }
+    }
+    END { exit found ? 0 : 1 }
+' "$worker"; then
+    error 'Worker contém quebra de linha entre owner e repo na URL upstream'
+    worker_fail=1
+fi
+if grep -Fq 'searchParams' "$worker"; then
+    error 'Worker permite configuração por query string'
+    worker_fail=1
+fi
+worker_eval=$(printf '%s%s' 'ev' 'al')
+if grep -Fq "$worker_eval" "$worker"; then
+    error 'Worker contém eval'
+    worker_fail=1
+fi
+worker_secret_regex='gh''p_|github_''pat_|s''k-|OPENAI_''API_KEY|Authorization:[[:space:]]*Bearer|api[_-]?key[[:space:]]*='
+if grep -EIn "$worker_secret_regex" "$worker" >/dev/null 2>&1; then
+    error 'Worker contém possível token ou segredo'
+    worker_fail=1
+fi
+if command -v node >/dev/null 2>&1; then
+    if node --check "$worker"; then
+        ok 'node --check cloudflare/worker.js'
+    else
+        error 'sintaxe JavaScript inválida no Worker'
+        worker_fail=1
+    fi
+else
+    skip 'node não instalado; sintaxe do Worker não verificada'
+fi
+if awk '/^```/ { open = !open } END { exit open ? 1 : 0 }' cloudflare/README.md; then
+    ok 'blocos Markdown do README Cloudflare estão fechados'
+else
+    error 'cloudflare/README.md contém bloco de código aberto'
+    worker_fail=1
+fi
+if (( worker_fail )); then
+    ((failures += 1))
+else
+    ok 'Cloudflare Worker válido'
+fi
+
+step 7 8 'procurando segredos óbvios'
+secret_regex='OPENAI_''API_KEY=|gh''p_|github_''pat_|s''k-|pass''word=|pass''wd=|PRIVATE ''KEY|BEGIN OPENSSH PRIVATE ''KEY|BEGIN RSA PRIVATE ''KEY'
+secret_found=0
+while IFS= read -r -d '' file; do
+    if grep -EIn "$secret_regex" "$file" >/dev/null 2>&1; then
+        error "possível segredo em $file"
+        secret_found=1
+    fi
+done < <(find . -type f \
+    -not -path './.git/*' \
+    -not -path './node_modules/*' \
+    -not -path './.cache/*' \
+    -not -name '*.log' -print0)
+while IFS= read -r -d '' file; do
+    error "arquivo de chave SSH encontrado: $file"
+    secret_found=1
+done < <(find . -type f \( -name id_ed25519 -o -name id_ed25519.pub \) -print0)
+if (( secret_found )); then
+    ((failures += 1))
+else
+    ok 'nenhum segredo óbvio encontrado'
+fi
+
+step 8 8 'executando shellcheck'
+if command -v shellcheck >/dev/null 2>&1; then
+    if shellcheck -x "${bash_files[@]}"; then
+        ok 'shellcheck'
+    else
+        error 'shellcheck encontrou problemas'
+        ((failures += 1))
+    fi
+else
+    skip 'shellcheck não instalado'
+fi
+
+if (( failures > 0 )); then
+    error "$failures grupo(s) de validação falharam"
+    exit 1
+fi
+printf '\n> [ok] checks passed\n'

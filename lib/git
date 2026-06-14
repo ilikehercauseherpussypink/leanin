@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+configure_git() {
+    local current_name current_email name email change_identity=1
+
+    command_exists git || {
+        warn 'git indisponível; configuração Git pulada'
+        FAILURES+=('git:indisponivel')
+        return 1
+    }
+
+    current_name=$(git config --global --get user.name 2>/dev/null || true)
+    current_email=$(git config --global --get user.email 2>/dev/null || true)
+    [[ -n $current_name ]] && info "git user.name atual: $current_name"
+    [[ -n $current_email ]] && info "git user.email atual: $current_email"
+
+    if [[ -n $current_name && -n $current_email ]]; then
+        if ! yesno 'Sobrescrever a identidade Git global?' n; then
+            change_identity=0
+            name=$current_name
+            email=$current_email
+            skip 'identidade Git mantida'
+        fi
+    fi
+
+    if (( change_identity )); then
+        prompt name 'git user.name' "$current_name"
+        prompt email 'git user.email' "$current_email"
+        if [[ -z $name || -z $email ]]; then
+            warn 'nome ou email vazio; identidade Git não alterada'
+        else
+            if (( DRY_RUN )); then
+                run_cmd 'git user.name' git config --global user.name "$name"
+                run_cmd 'git user.email' git config --global user.email "$email"
+                printf '> [dry-run] configuraria identidade Git global\n'
+                CONFIGS_PLANNED+=('Git identity')
+            else
+                run_cmd 'git user.name' git config --global user.name "$name" \
+                    && run_cmd 'git user.email' git config --global user.email "$email"
+                ok 'identidade Git configurada'
+            fi
+        fi
+    fi
+
+    (( DRY_RUN )) && CONFIGS_PLANNED+=('Git init.defaultBranch' 'Git pull.rebase')
+    run_cmd 'branch padrão Git' git config --global init.defaultBranch main || true
+    run_cmd 'estratégia pull Git' git config --global pull.rebase false || true
+    if command_exists code; then
+        (( DRY_RUN )) && CONFIGS_PLANNED+=('Git core.editor')
+        run_cmd 'editor Git' git config --global core.editor 'code --wait' || true
+    fi
+
+    GIT_NAME=$(git config --global --get user.name 2>/dev/null || true)
+    GIT_EMAIL=$(git config --global --get user.email 2>/dev/null || true)
+    export GIT_NAME GIT_EMAIL
+}

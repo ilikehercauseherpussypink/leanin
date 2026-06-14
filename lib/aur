@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+
+declare -ag AUR_INSTALLED=() AUR_SKIPPED=()
+declare -ag AUR_PLANNED=() AUR_ALREADY=()
+AUR_HELPER=''
+
+aur_conflict_reason() {
+    local package=${1:-}
+    if [[ $package == mullvad-vpn-bin ]] \
+        && pacman -Qq mullvad-vpn-daemon >/dev/null 2>&1; then
+        printf '%s' 'mullvad-vpn-daemon já instalado; pulei mullvad-vpn-bin'
+        return 0
+    fi
+    return 1
+}
+
+detect() {
+    if command_exists paru; then
+        AUR_HELPER=paru
+    elif command_exists yay; then
+        AUR_HELPER=yay
+    else
+        return 1
+    fi
+    ok "AUR helper: $AUR_HELPER"
+}
+
+bootstrap_paru() {
+    local build_dir
+    if (( PACMAN_BLOCKED )); then
+        warn 'paru não pode ser instalado enquanto o pacman estiver bloqueado'
+        return 1
+    fi
+    command_exists git || {
+        warn 'git indisponível; não foi possível instalar paru'
+        return 1
+    }
+    command_exists makepkg || {
+        warn 'makepkg indisponível; instale base-devel antes do paru'
+        return 1
+    }
+    if (( DRY_RUN )); then
+        printf '> [dry-run] instalaria o AUR helper paru\n'
+        dry_run_msg git clone https://aur.archlinux.org/paru.git /tmp/archboot-paru
+        dry_run_msg makepkg -si --noconfirm
+        CONFIGS_PLANNED+=('AUR helper paru')
+        AUR_HELPER=paru
+        return 0
+    fi
+    build_dir=$(mktemp -d)
+    # $1 é expandido pelo Bash filho, com o diretório passado como argumento.
+    # shellcheck disable=SC2016
+    if run_cmd 'baixar paru' git clone https://aur.archlinux.org/paru.git "$build_dir/paru" \
+        && run_cmd 'compilar paru' bash -c 'cd "$1" && makepkg -si --noconfirm' _ "$build_dir/paru"; then
+        AUR_HELPER=paru
+        ok 'paru instalado'
+        rm -rf "$build_dir"
+        return 0
+    fi
+    rm -rf "$build_dir"
+    error 'falha ao instalar paru'
+    FAILURES+=('aur:paru')
+    return 1
+}
+
+install() {
+    local package conflict_reason='' already_before=${#AUR_ALREADY[@]} already_count index
+    for package in "$@"; do
+        if (( PACMAN_BLOCKED )); then
+            skip "$package: AUR bloqueado pelo lock do pacman"
+            AUR_SKIPPED+=("$package")
+            continue
+        fi
+        if pacman -Qq "$package" >/dev/null 2>&1; then
+            (( VERBOSE )) && skip "$package já instalado"
+            printf 'SKIP AUR already installed: %s\n' "$package" >>"$LOG_FILE"
+            AUR_SKIPPED+=("$package")
+            AUR_ALREADY+=("$package")
+            continue
+        fi
+        conflict_reason=''
+        if conflict_reason=$(aur_conflict_reason "$package"); then
+            skip "$conflict_reason"
+            AUR_SKIPPED+=("$package")
+            continue
+        fi
+        if [[ -z $AUR_HELPER ]]; then
+            skip "$package: AUR helper indisponível"
+            AUR_SKIPPED+=("$package")
+            continue
+        fi
+        if (( DRY_RUN )); then
+            info "$package"
+            run_cmd "AUR: $package" "$AUR_HELPER" -S --needed --noconfirm "$package"
+            AUR_PLANNED+=("$package")
+            continue
+        fi
+        info "instalando $package"
+        if run_cmd "AUR: $package" "$AUR_HELPER" -S --needed --noconfirm "$package"; then
+            ok "$package"
+            AUR_INSTALLED+=("$package")
+        else
+            error "pacote falhou: $package"
+            info "log: $LOG_FILE"
+            FAILURES+=("aur:$package")
+        fi
+    done
+    already_count=$((${#AUR_ALREADY[@]} - already_before))
+    if (( ! VERBOSE && already_count > 0 )); then
+        if (( already_count <= 2 )); then
+            for ((index = already_before; index < ${#AUR_ALREADY[@]}; index++)); do
+                skip "${AUR_ALREADY[$index]} já instalado"
+            done
+        else
+            skip "$already_count pacotes AUR já instalados"
+        fi
+    fi
+}

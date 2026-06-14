@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+
+_log_command() {
+    local arg
+    printf 'COMMAND:' >>"$LOG_FILE"
+    for arg in "$@"; do
+        printf ' %q' "$arg" >>"$LOG_FILE"
+    done
+    printf '\n' >>"$LOG_FILE"
+}
+
+_print_command() {
+    local arg rendered=''
+    for arg in "$@"; do
+        printf -v rendered '%s %q' "$rendered" "$arg"
+    done
+    printf '> [cmd]%s\n' "$rendered"
+}
+
+dry_run_msg() {
+    local arg rendered=''
+    for arg in "$@"; do
+        printf -v rendered '%s %q' "$rendered" "$arg"
+    done
+    printf '> [dry-run]%s\n' "$rendered"
+}
+
+run_cmd() {
+    local label=$1
+    shift
+    local -a command=("$@")
+    local status
+
+    if (( DRY_RUN )); then
+        dry_run_msg "${command[@]}"
+        return 0
+    fi
+
+    _log_command "${command[@]}"
+    if (( VERBOSE )); then
+        _print_command "${command[@]}"
+        set +e
+        "${command[@]}" 2>&1 | tee -a "$LOG_FILE"
+        status=${PIPESTATUS[0]}
+        set -e
+    else
+        set +e
+        "${command[@]}" >>"$LOG_FILE" 2>&1
+        status=$?
+        set -e
+    fi
+
+    if (( status != 0 )); then
+        printf 'FAILED (%s): %s\n' "$status" "$label" >>"$LOG_FILE"
+    fi
+    return "$status"
+}
+
+run_sudo() {
+    local label=$1
+    shift
+    run_cmd "$label" "$(command -v sudo)" -- "$@"
+}
+
+run_quiet() {
+    run_cmd "$@"
+}
+
+run_capture() {
+    local variable=${1:-} label=${2:-}
+    local captured_output='' status=0
+    shift 2
+    local -a command=("$@")
+
+    [[ -n $variable ]] || return 2
+    printf -v "$variable" '%s' ''
+
+    if (( DRY_RUN )); then
+        dry_run_msg "${command[@]}"
+        return 0
+    fi
+
+    _log_command "${command[@]}"
+    (( VERBOSE )) && _print_command "${command[@]}"
+    set +e
+    captured_output=$("${command[@]}" 2>&1)
+    status=$?
+    set -e
+    printf '%s\n' "$captured_output" >>"$LOG_FILE"
+    (( VERBOSE )) && printf '%s\n' "$captured_output"
+    printf -v "$variable" '%s' "$captured_output"
+    if (( status != 0 )); then
+        printf 'FAILED (%s): %s\n' "$status" "$label" >>"$LOG_FILE"
+    fi
+    return "$status"
+}

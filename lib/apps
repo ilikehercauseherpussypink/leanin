@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+
+declare -ag PACMAN_APPS=() PACMAN_CORE=() PACMAN_REST=()
+declare -ag FLATPAK_APPS=() AUR_APPS=()
+declare -Ag APP_COUNTS=()
+
+_trim() {
+    local value=$1
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "$value"
+}
+
+_read_app_file() {
+    local source=$1 file=$2 line item category key
+    local -n target=$3
+    local count=0
+    category=$(basename "$file")
+    key="$source/$category"
+
+    while IFS= read -r line || [[ -n $line ]]; do
+        line=$(_trim "$line")
+        [[ -z $line || $line == \#* ]] && continue
+        line=${line%%[[:space:]]#*}
+        item=$(_trim "$line")
+        [[ -z $item ]] && continue
+        if [[ $item == *[[:space:]]* ]]; then
+            warn "$key: entrada ignorada por conter espaços: $item"
+            continue
+        fi
+        target+=("$item")
+        ((count += 1))
+        if [[ $source == pacman ]]; then
+            PACMAN_APPS+=("$item")
+            case $category in
+                base|dev|system) PACMAN_CORE+=("$item") ;;
+                *) PACMAN_REST+=("$item") ;;
+            esac
+        fi
+    done <"$file"
+
+    APP_COUNTS["$key"]=$count
+}
+
+read_source_apps() {
+    local source=$1 file
+    local directory="$ARCHBOOT_ROOT/apps/$source"
+    local -a files=()
+    # Recebe entradas de pacman por nameref; a classificação ocorre no parser.
+    # shellcheck disable=SC2034
+    local -a scratch=()
+    mapfile -d '' -t files < <(find "$directory" -maxdepth 1 -type f -print0 | sort -z)
+    for file in "${files[@]}"; do
+        case $source in
+            pacman) _read_app_file "$source" "$file" scratch ;;
+            flatpak) _read_app_file "$source" "$file" FLATPAK_APPS ;;
+            aur) _read_app_file "$source" "$file" AUR_APPS ;;
+        esac
+    done
+}
+
+read_pacman() { read_source_apps pacman; }
+read_flatpak() { read_source_apps flatpak; }
+read_aur() { read_source_apps aur; }
+
+count_apps() {
+    local source=$1
+    case $source in
+        pacman) printf '%s' "${#PACMAN_APPS[@]}" ;;
+        flatpak) printf '%s' "${#FLATPAK_APPS[@]}" ;;
+        aur) printf '%s' "${#AUR_APPS[@]}" ;;
+        *) return 1 ;;
+    esac
+}
+
+validate_apps() {
+    local item valid=1
+    for item in "${FLATPAK_APPS[@]}"; do
+        [[ $item =~ ^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){2,}$ ]] || {
+            warn "ID Flatpak improvável: $item"
+            valid=0
+        }
+    done
+    for item in "${PACMAN_APPS[@]}" "${AUR_APPS[@]}"; do
+        [[ $item =~ ^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){2,}$ ]] && {
+            warn "pacote parece ID Flatpak: $item"
+            valid=0
+        }
+    done
+    (( valid ))
+}
+
+print_plan() {
+    local source key count suffix
+    for key in "${!APP_COUNTS[@]}"; do
+        printf 'PLAN category %s=%s\n' "$key" "${APP_COUNTS[$key]}" >>"$LOG_FILE"
+    done
+    if (( ! VERBOSE )); then
+        ok "pacman: $(count_apps pacman) pacotes"
+        ok "flatpak: $(count_apps flatpak) apps"
+        ok "aur: $(count_apps aur) pacotes"
+        printf 'PLAN: pacman=%s flatpak=%s aur=%s\n' \
+            "$(count_apps pacman)" "$(count_apps flatpak)" "$(count_apps aur)" >>"$LOG_FILE"
+        return 0
+    fi
+    for source in pacman flatpak aur; do
+        while IFS= read -r key; do
+            [[ -n $key ]] || continue
+            count=${APP_COUNTS[$key]}
+            suffix='pacotes'
+            (( count == 1 )) && suffix='pacote'
+            ok "$key: $count $suffix"
+        done < <(printf '%s\n' "${!APP_COUNTS[@]}" | grep "^$source/" | sort)
+    done
+}

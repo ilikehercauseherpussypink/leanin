@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+banner() {
+    printf '\narchboot\n'
+    printf 'Bootstrap modular para Arch Linux\n\n'
+}
+
+step() {
+    local current=$1 total=$2 name=$3
+    printf '\n> Etapa %s/%s: %s\n' "$current" "$total" "$name"
+}
+
+info()  { printf '> [info] %s\n' "$*"; }
+ok()    { printf '> [ok] %s\n' "$*"; }
+skip()  { printf '> [skip] %s\n' "$*"; }
+warn()  { printf '> [warn] %s\n' "$*" >&2; }
+error() { printf '> [error] %s\n' "$*" >&2; }
+
+die() {
+    error "$*"
+    exit 1
+}

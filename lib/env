@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+arch() {
+    [[ -r /etc/os-release ]] || return 1
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    [[ ${ID:-} == arch || " ${ID_LIKE:-} " == *' arch '* ]]
+}
+
+root() {
+    (( EUID == 0 ))
+}
+
+sudo() {
+    command_exists sudo || die 'sudo não está instalado'
+    if (( DRY_RUN )); then
+        return 0
+    fi
+    if ! command sudo -v; then
+        die 'sudo indisponível para o usuário atual'
+    fi
+}
+
+net() {
+    command_exists curl || die 'curl não está instalado'
+    curl -fsSI --connect-timeout 8 https://archlinux.org/ >/dev/null \
+        || die 'sem acesso básico à internet'
+}
+
+state() {
+    local state_home=${XDG_STATE_HOME:-$HOME/.local/state}
+    ARCHBOOT_STATE_DIR="$state_home/archboot"
+    ARCHBOOT_LOG_DIR="$ARCHBOOT_STATE_DIR/logs"
+    mkdir -p "$ARCHBOOT_LOG_DIR"
+    LOG_FILE="$ARCHBOOT_LOG_DIR/$(date '+%Y%m%d-%H%M%S')-$$.log"
+    : >"$LOG_FILE"
+    export ARCHBOOT_STATE_DIR ARCHBOOT_LOG_DIR LOG_FILE
+}
+
+lock() {
+    PACMAN_BLOCKED=0
+    if [[ -e /var/lib/pacman/db.lck ]]; then
+        PACMAN_BLOCKED=1
+        warn 'lock do pacman detectado; pacman e AUR serão pulados'
+        info 'não remova o lock sem confirmar que nenhum gerenciador de pacotes está ativo'
+    else
+        ok 'pacman sem lock'
+    fi
+    export PACMAN_BLOCKED
+}

@@ -1,0 +1,17 @@
+.env
+.env.*
+.envrc
+*.key
+*.pem
+id_ed25519
+id_ed25519.pub
+*.log
+*.swp
+*.swo
+node_modules/
+.cache/
+tmp/
+dist/
+coverage/
+cloudflare/wrangler.toml
+.DS_Store

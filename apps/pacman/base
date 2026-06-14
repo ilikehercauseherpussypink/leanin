@@ -1,0 +1,6 @@
+# Base
+
+curl
+ca-certificates
+base-devel
+flatpak

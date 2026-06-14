@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+
+CODEX_PREFIX="$HOME/.codex"
+# As variáveis devem ser expandidas quando o shell carregar o arquivo de perfil.
+# shellcheck disable=SC2016
+CODEX_PATH_LINE='export PATH="$HOME/.codex/bin:$PATH"'
+# shellcheck disable=SC2016
+CODEX_FISH_LINE='fish_add_path "$HOME/.codex/bin"'
+declare -ag CODEX_PATH_ALREADY=()
+CODEX_PATH_CHANGED=0
+
+configure_prefix() {
+    if (( DRY_RUN )); then
+        dry_run_msg mkdir -p "$CODEX_PREFIX"
+    else
+        mkdir -p "$CODEX_PREFIX"
+    fi
+    if ! command_exists npm; then
+        warn 'npm indisponível; Codex será pulado'
+        FAILURES+=('codex:npm-indisponivel')
+        return 1
+    fi
+    if (( DRY_RUN )); then
+        run_cmd 'configurar prefixo npm' npm config set prefix "$CODEX_PREFIX"
+        printf '> [dry-run] configuraria o prefixo npm em %s\n' "$CODEX_PREFIX"
+        CONFIGS_PLANNED+=('Codex npm prefix')
+        return 0
+    fi
+    if run_cmd 'configurar prefixo npm' npm config set prefix "$CODEX_PREFIX"; then
+        ok 'prefixo npm configurado em ~/.codex'
+    else
+        error 'falha ao configurar prefixo npm do Codex'
+        FAILURES+=('codex:prefixo')
+        return 1
+    fi
+}
+
+install_codex() {
+    command_exists npm || return 1
+    if (( DRY_RUN )); then
+        printf '> [dry-run] instalaria Codex CLI em %s/bin\n' "$CODEX_PREFIX"
+        run_cmd 'instalar Codex CLI' npm install -g @openai/codex
+        CONFIGS_PLANNED+=('Codex CLI')
+        return 0
+    fi
+    info 'instalando @openai/codex'
+    if run_cmd 'instalar Codex CLI' npm install -g @openai/codex; then
+        ok 'Codex CLI instalado'
+    else
+        error 'falha ao instalar Codex CLI'
+        info "log: $LOG_FILE"
+        FAILURES+=('codex:instalacao')
+        return 1
+    fi
+}
+
+_append_path_line() {
+    local file=$1 line=$2
+    if [[ -f $file ]] && grep -Fqx "$line" "$file"; then
+        CODEX_PATH_ALREADY+=("$file")
+        (( VERBOSE )) && skip "PATH já configurado em $file"
+        printf 'SKIP Codex PATH already configured: %s\n' "$file" >>"$LOG_FILE"
+        return 0
+    fi
+    if (( DRY_RUN )); then
+        printf '> [dry-run] configuraria PATH em %s\n' "$file"
+        CONFIGS_PLANNED+=("Codex PATH ($file)")
+        return 0
+    fi
+    mkdir -p "$(dirname "$file")"
+    printf '\n%s\n' "$line" >>"$file"
+    ok "PATH configurado em $file"
+    # Consumida pelo resumo do orquestrador.
+    # shellcheck disable=SC2034
+    CODEX_PATH_CHANGED=1
+}
+
+configure_path() {
+    local fish_config="$HOME/.config/fish/config.fish" already_before=${#CODEX_PATH_ALREADY[@]} already_count
+    CODEX_PREVIOUS_COMMAND=$(command -v codex 2>/dev/null || true)
+    _append_path_line "$HOME/.profile" "$CODEX_PATH_LINE"
+    [[ -f $HOME/.bashrc ]] && _append_path_line "$HOME/.bashrc" "$CODEX_PATH_LINE"
+    [[ -f $HOME/.zshrc ]] && _append_path_line "$HOME/.zshrc" "$CODEX_PATH_LINE"
+    if command_exists fish || [[ -d $HOME/.config/fish ]]; then
+        _append_path_line "$fish_config" "$CODEX_FISH_LINE"
+    fi
+    already_count=$((${#CODEX_PATH_ALREADY[@]} - already_before))
+    if (( ! VERBOSE && already_count > 0 )); then
+        skip "$already_count arquivos PATH já configurados"
+    fi
+    export PATH="$CODEX_PREFIX/bin:$PATH"
+    export CODEX_PREVIOUS_COMMAND
+}

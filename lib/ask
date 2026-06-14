@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+is_interactive() {
+    [[ -t 0 && -t 1 ]]
+}
+
+yesno() {
+    local question=$1 default=${2:-n} answer prompt_hint
+
+    if ! is_interactive; then
+        [[ $default == s || $default == y ]]
+        return
+    fi
+
+    if [[ $default == s || $default == y ]]; then
+        prompt_hint='S/n'
+    else
+        prompt_hint='s/N'
+    fi
+
+    while true; do
+        read -r -p "> [ask] $question [$prompt_hint] " answer || answer=''
+        answer=${answer,,}
+        [[ -z $answer ]] && answer=$default
+        case $answer in
+            s|sim|y|yes) return 0 ;;
+            n|nao|não|no) return 1 ;;
+            *) warn 'responda com s ou n' ;;
+        esac
+    done
+}
+
+prompt() {
+    local variable=$1 question=$2 default=${3:-} answer
+
+    if ! is_interactive; then
+        printf -v "$variable" '%s' "$default"
+        return 0
+    fi
+
+    if [[ -n $default ]]; then
+        read -r -p "> [ask] $question [$default]: " answer || answer=''
+        answer=${answer:-$default}
+    else
+        read -r -p "> [ask] $question: " answer || answer=''
+    fi
+    printf -v "$variable" '%s' "$answer"
+}
+
+pause() {
+    local message=${1:-'Pressione Enter para continuar.'}
+    is_interactive || return 0
+    read -r -p "> [ask] $message" _ || true
+}

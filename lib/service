@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+
+declare -ag SYSTEM_SERVICES=() USER_SERVICES=()
+declare -ag SERVICES_ACTIVATED=() SERVICES_ALREADY=() SERVICES_SKIPPED=() SERVICES_PLANNED=()
+
+_service_trim() {
+    local value=${1:-}
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "$value"
+}
+
+_read_service_file() {
+    local file=$1 line='' service=''
+    local -n target=$2
+
+    while IFS= read -r line || [[ -n $line ]]; do
+        line=$(_service_trim "$line")
+        [[ -z $line || $line == \#* ]] && continue
+        line=${line%%[[:space:]]#*}
+        service=$(_service_trim "$line")
+        [[ -z $service ]] && continue
+        if [[ $service == *[[:space:]]* ]]; then
+            warn "serviço ignorado por conter espaços: $service"
+            continue
+        fi
+        target+=("$service")
+    done <"$file"
+}
+
+read_services() {
+    SYSTEM_SERVICES=()
+    USER_SERVICES=()
+    _read_service_file "$ARCHBOOT_ROOT/services/system" SYSTEM_SERVICES
+    _read_service_file "$ARCHBOOT_ROOT/services/user" USER_SERVICES
+}
+
+print_services_plan() {
+    local system_count=${#SYSTEM_SERVICES[@]} user_count=${#USER_SERVICES[@]}
+    local system_label='serviços' user_label='serviços'
+    (( system_count == 1 )) && system_label='serviço'
+    (( user_count == 1 )) && user_label='serviço'
+    ok "system services: $system_count $system_label"
+    ok "user services: $user_count $user_label"
+    printf 'PLAN services: system=%s user=%s\n' "$system_count" "$user_count" >>"$LOG_FILE"
+}
+
+_service_command() {
+    local scope=$1
+    shift
+    if [[ $scope == system ]]; then
+        systemctl "$@"
+    else
+        systemctl --user "$@"
+    fi
+}
+
+service_exists() {
+    local scope=$1 service=$2
+    _service_command "$scope" cat "$service" >/dev/null 2>&1
+}
+
+service_ready() {
+    local scope=$1 service=$2
+    _service_command "$scope" is-enabled --quiet "$service" >/dev/null 2>&1 \
+        && _service_command "$scope" is-active --quiet "$service" >/dev/null 2>&1
+}
+
+service_enable() {
+    local scope=$1 service=$2
+
+    if ! service_exists "$scope" "$service"; then
+        skip "$service não encontrado"
+        SERVICES_SKIPPED+=("$scope:$service")
+        printf 'SKIP service missing: %s:%s\n' "$scope" "$service" >>"$LOG_FILE"
+        return 0
+    fi
+    if service_ready "$scope" "$service"; then
+        skip "$service já ativo"
+        SERVICES_ALREADY+=("$scope:$service")
+        printf 'SKIP service already ready: %s:%s\n' "$scope" "$service" >>"$LOG_FILE"
+        return 0
+    fi
+    if (( DRY_RUN )); then
+        if [[ $scope == system ]]; then
+            run_sudo "ativar serviço: $service" systemctl enable --now "$service"
+        else
+            run_cmd "ativar serviço user: $service" systemctl --user enable --now "$service"
+        fi
+        SERVICES_PLANNED+=("$scope:$service")
+        return 0
+    fi
+
+    info "ativando $service"
+    if [[ $scope == system ]]; then
+        if run_sudo "ativar serviço: $service" systemctl enable --now "$service"; then
+            ok "$service"
+            SERVICES_ACTIVATED+=("$scope:$service")
+            return 0
+        fi
+    elif run_cmd "ativar serviço user: $service" systemctl --user enable --now "$service"; then
+        ok "$service"
+        SERVICES_ACTIVATED+=("$scope:$service")
+        return 0
+    fi
+
+    error "serviço falhou: $service"
+    info "log: $LOG_FILE"
+    FAILURES+=("service:$scope:$service")
+    return 1
+}
+
+activate_services() {
+    local service
+    for service in "${SYSTEM_SERVICES[@]}"; do
+        service_enable system "$service" || true
+    done
+    for service in "${USER_SERVICES[@]}"; do
+        service_enable user "$service" || true
+    done
+}

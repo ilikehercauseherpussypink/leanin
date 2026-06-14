@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$ROOT"
+
+repo=''
+visibility=''
+description=''
+
+ok()    { printf '> [ok] %s\n' "$*"; }
+info()  { printf '> [info] %s\n' "$*"; }
+error() { printf '> [error] %s\n' "$*" >&2; }
+step()  { printf '\n> Etapa %s/%s: %s\n' "$1" "$2" "$3"; }
+die()   { error "$*"; exit 1; }
+
+yesno() {
+    local question=$1 default=${2:-n} answer hint='s/N'
+    [[ $default == s ]] && hint='S/n'
+    while true; do
+        read -r -p "> [ask] $question [$hint] " answer || answer=''
+        answer=${answer,,}
+        [[ -z $answer ]] && answer=$default
+        case $answer in
+            s|sim|y|yes) return 0 ;;
+            n|nao|não|no) return 1 ;;
+            *) error 'responda com s ou n' ;;
+        esac
+    done
+}
+
+prompt() {
+    local variable=$1 question=$2 default=${3:-} answer
+    read -r -p "> [ask] $question${default:+ [$default]}: " answer || answer=''
+    printf -v "$variable" '%s' "${answer:-$default}"
+}
+
+step 1 6 'validando ferramentas'
+command -v git >/dev/null 2>&1 || die 'git não está instalado'
+command -v gh >/dev/null 2>&1 || die 'GitHub CLI não está instalado'
+if ! gh auth status >/dev/null 2>&1; then
+    info 'GitHub CLI não autenticado'
+    gh auth login --web || die 'autenticação GitHub não concluída'
+fi
+ok 'git e GitHub CLI disponíveis'
+
+step 2 6 'executando checks'
+bash scripts/check
+
+step 3 6 'preparando repositório local'
+if [[ ! -d .git ]]; then
+    git init
+    ok 'repositório Git iniciado'
+fi
+git branch -M main
+ok 'branch main selecionada'
+git status --short
+
+step 4 6 'configurando publicação'
+prompt repo 'nome do repositório' archboot
+while true; do
+    prompt visibility 'visibilidade (public/private)' public
+    [[ $visibility == public || $visibility == private ]] && break
+    error 'use public ou private'
+done
+prompt description 'descrição' 'Bootstrap modular e auditável para Arch Linux'
+owner=$(gh api user --jq .login)
+[[ -n $owner && -n $repo ]] || die 'owner ou nome do repositório vazio'
+info "destino: $owner/$repo ($visibility)"
+
+step 5 6 'revisando commit'
+if ! yesno 'Adicionar arquivos, criar commit e publicar?' n; then
+    info 'publicação cancelada'
+    exit 0
+fi
+git add --all
+if yesno 'Mostrar diff staged antes do commit?' n; then
+    git diff --cached
+fi
+if ! git diff --cached --quiet; then
+    git commit -m 'feat: add arch bootstrap installer'
+    ok 'commit criado'
+else
+    info 'nenhuma alteração nova para commit'
+fi
+
+step 6 6 'publicando no GitHub'
+if git remote get-url origin >/dev/null 2>&1; then
+    git push -u origin main
+else
+    if [[ $visibility == public ]]; then
+        gh repo create "$owner/$repo" --public --description "$description" --source=. --remote=origin --push
+    else
+        gh repo create "$owner/$repo" --private --description "$description" --source=. --remote=origin --push
+    fi
+fi
+ok "publicado: https://github.com/$owner/$repo"

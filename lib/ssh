@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+
+SSH_PRIVATE_KEY=''
+SSH_PUBLIC_KEY=''
+SSH_CLIPBOARD='não'
+SSH_GITHUB_RESULT='não testado'
+# Consumida pelo orquestrador após source deste módulo.
+# shellcheck disable=SC2034
+GITHUB_KEYS_URL='https://github.com/settings/keys'
+
+_normalize_ssh_key_path() {
+    local input=$1 ssh_dir candidate normalized
+    ssh_dir=$(realpath -m -- "$HOME/.ssh") || return 1
+
+    # Os padrões representam texto digitado, não expansão do shell atual.
+    # shellcheck disable=SC2016,SC2088
+    case $input in
+        '~/'*) candidate="$HOME/${input:2}" ;;
+        '\$HOME/'*) candidate="$HOME/${input:6}" ;;
+        /*) candidate=$input ;;
+        *) candidate="$ssh_dir/$input" ;;
+    esac
+
+    normalized=$(realpath -m -- "$candidate") || return 1
+    if [[ $normalized != "$ssh_dir/"* ]]; then
+        warn 'o caminho da chave deve ficar dentro de ~/.ssh'
+        return 1
+    fi
+    printf '%s' "$normalized"
+}
+
+_set_ssh_permissions() {
+    local private_key=$1 public_key=$2 key_dir
+    key_dir=$(dirname -- "$private_key")
+    if (( DRY_RUN )); then
+        dry_run_msg mkdir -p "$key_dir"
+        dry_run_msg chmod 700 "$HOME/.ssh"
+        [[ $key_dir == "$HOME/.ssh" ]] || dry_run_msg chmod 700 "$key_dir"
+        dry_run_msg chmod 600 "$private_key"
+        dry_run_msg chmod 644 "$public_key"
+        CONFIGS_PLANNED+=('SSH permissions')
+        return 0
+    fi
+    mkdir -p "$key_dir"
+    chmod 700 "$HOME/.ssh"
+    [[ $key_dir == "$HOME/.ssh" ]] || chmod 700 "$key_dir"
+    chmod 600 "$private_key"
+    chmod 644 "$public_key"
+}
+
+_start_ssh_agent() {
+    local agent_output sock pid
+    [[ -n ${SSH_AUTH_SOCK:-} ]] && return 0
+    command_exists ssh-agent || return 1
+    agent_output=$(ssh-agent -s 2>/dev/null) || return 1
+    sock=$(printf '%s\n' "$agent_output" | sed -n 's/^SSH_AUTH_SOCK=\([^;]*\).*/\1/p')
+    pid=$(printf '%s\n' "$agent_output" | sed -n 's/^SSH_AGENT_PID=\([^;]*\).*/\1/p')
+    [[ -n $sock && -n $pid ]] || return 1
+    export SSH_AUTH_SOCK=$sock SSH_AGENT_PID=$pid
+}
+
+configure_ssh() {
+    local default_key="$HOME/.ssh/id_ed25519" alternate email normalized
+
+    command_exists ssh-keygen || {
+        warn 'ssh-keygen indisponível; configuração SSH pulada'
+        FAILURES+=('ssh:indisponivel')
+        return 1
+    }
+
+    if [[ -f $default_key ]]; then
+        if yesno 'Reutilizar ~/.ssh/id_ed25519?' s; then
+            SSH_PRIVATE_KEY=$default_key
+        else
+            prompt alternate 'nome da nova chave' "$HOME/.ssh/id_ed25519_github"
+            [[ -n $alternate ]] || {
+                warn 'caminho vazio; configuração SSH pulada'
+                return 1
+            }
+            if ! normalized=$(_normalize_ssh_key_path "$alternate"); then
+                warn 'nome de chave inválido; configuração SSH pulada'
+                return 1
+            fi
+            SSH_PRIVATE_KEY=$normalized
+        fi
+    else
+        if ! yesno 'Criar uma chave SSH ed25519 para GitHub?' n; then
+            skip 'criação de chave SSH recusada'
+            return 1
+        fi
+        SSH_PRIVATE_KEY=$default_key
+    fi
+
+    if ! normalized=$(_normalize_ssh_key_path "$SSH_PRIVATE_KEY"); then
+        warn 'caminho de chave inválido; configuração SSH pulada'
+        return 1
+    fi
+    SSH_PRIVATE_KEY=$normalized
+    SSH_PUBLIC_KEY="$SSH_PRIVATE_KEY.pub"
+    (( VERBOSE )) && info "caminho SSH final: $SSH_PRIVATE_KEY"
+    if [[ ! -f $SSH_PRIVATE_KEY ]]; then
+        if [[ -e $SSH_PRIVATE_KEY || -e $SSH_PUBLIC_KEY ]]; then
+            warn "o caminho já existe e não será sobrescrito: $SSH_PRIVATE_KEY"
+            return 1
+        fi
+        email=${GIT_EMAIL:-$(git config --global --get user.email 2>/dev/null || true)}
+        email=${email:-$USER@$(hostname)}
+        if (( DRY_RUN )); then
+            printf '> [dry-run] criaria chave SSH em %s\n' "$SSH_PRIVATE_KEY"
+            dry_run_msg ssh-keygen -t ed25519 -C "$email" -f "$SSH_PRIVATE_KEY"
+            _set_ssh_permissions "$SSH_PRIVATE_KEY" "$SSH_PUBLIC_KEY"
+            CONFIGS_PLANNED+=("SSH key ($SSH_PRIVATE_KEY)")
+        else
+            mkdir -p "$HOME/.ssh"
+            chmod 700 "$HOME/.ssh"
+            info 'ssh-keygen solicitará uma passphrase; ela não será registrada'
+            ssh-keygen -t ed25519 -C "$email" -f "$SSH_PRIVATE_KEY"
+            _set_ssh_permissions "$SSH_PRIVATE_KEY" "$SSH_PUBLIC_KEY"
+            ok "chave SSH local pronta: $SSH_PUBLIC_KEY"
+        fi
+    elif [[ ! -f $SSH_PUBLIC_KEY ]]; then
+        warn "chave pública ausente: $SSH_PUBLIC_KEY"
+        return 1
+    else
+        _set_ssh_permissions "$SSH_PRIVATE_KEY" "$SSH_PUBLIC_KEY"
+        ok "chave SSH local pronta: $SSH_PUBLIC_KEY"
+    fi
+
+    if (( ! DRY_RUN )); then
+        if _start_ssh_agent; then
+            if run_cmd 'adicionar chave ao ssh-agent' ssh-add "$SSH_PRIVATE_KEY"; then
+                ok 'ssh-agent'
+            else
+                warn 'não foi possível adicionar a chave ao ssh-agent'
+            fi
+        else
+            warn 'ssh-agent indisponível'
+        fi
+    fi
+    export SSH_PRIVATE_KEY SSH_PUBLIC_KEY SSH_CLIPBOARD
+}
+
+print_pubkey() {
+    [[ -n $SSH_PUBLIC_KEY ]] || return 1
+    if (( DRY_RUN )); then
+        info "chave pública planejada: $SSH_PUBLIC_KEY"
+        return 0
+    fi
+    [[ -r $SSH_PUBLIC_KEY ]] || return 1
+    printf 'PUBLIC SSH KEY (%s): %s\n' "$SSH_PUBLIC_KEY" "$(<"$SSH_PUBLIC_KEY")" >>"$LOG_FILE"
+    printf '\n> Chave pública SSH\n'
+    cat "$SSH_PUBLIC_KEY"
+    printf '\n'
+    if command_exists wl-copy; then
+        wl-copy <"$SSH_PUBLIC_KEY" && SSH_CLIPBOARD='sim (wl-copy)'
+    elif command_exists xclip; then
+        xclip -selection clipboard <"$SSH_PUBLIC_KEY" && SSH_CLIPBOARD='sim (xclip)'
+    fi
+    [[ $SSH_CLIPBOARD == não ]] || ok 'chave pública copiada para o clipboard'
+    export SSH_CLIPBOARD
+}
+
+test_github_ssh() {
+    local output status=0
+    if (( DRY_RUN )); then
+        dry_run_msg ssh -o StrictHostKeyChecking=accept-new -T git@github.com
+        SSH_GITHUB_RESULT='dry-run'
+        return 0
+    fi
+    set +e
+    output=$(ssh -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1)
+    status=$?
+    set -e
+    printf '%s\n' "$output" >>"$LOG_FILE"
+    (( VERBOSE )) && printf '%s\n' "$output"
+    if [[ $output == *'successfully authenticated'* \
+        || $output == *"You've successfully authenticated"* \
+        || $output == *'does not provide shell access'* ]]; then
+        SSH_GITHUB_RESULT='autenticado'
+        ok 'SSH GitHub autenticado'
+        return 0
+    fi
+    # Consumida pelo resumo do orquestrador.
+    # shellcheck disable=SC2034
+    SSH_GITHUB_RESULT="falhou (código $status)"
+    warn 'teste SSH com GitHub não confirmou autenticação'
+    info "log: $LOG_FILE"
+    return 1
+}

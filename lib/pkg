@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+declare -ag PACMAN_INSTALLED=() PACMAN_SKIPPED=()
+declare -ag PACMAN_PLANNED=() PACMAN_ALREADY=()
+
+pacman_missing() {
+    ! pacman -Qq "$1" >/dev/null 2>&1
+}
+
+pacman_lock() {
+    [[ ! -e /var/lib/pacman/db.lck ]]
+}
+
+pacman_install() {
+    local package already_before=${#PACMAN_ALREADY[@]} already_count index
+    for package in "$@"; do
+        if ! pacman_missing "$package"; then
+            (( VERBOSE )) && skip "$package já instalado"
+            printf 'SKIP pacman already installed: %s\n' "$package" >>"$LOG_FILE"
+            PACMAN_SKIPPED+=("$package")
+            PACMAN_ALREADY+=("$package")
+            continue
+        fi
+        if (( PACMAN_BLOCKED )) || ! pacman_lock; then
+            skip "$package: pacman bloqueado por lock"
+            PACMAN_SKIPPED+=("$package")
+            continue
+        fi
+        if (( DRY_RUN )); then
+            info "$package"
+            run_sudo "pacman: $package" pacman -S --needed --noconfirm "$package"
+            PACMAN_PLANNED+=("$package")
+            continue
+        fi
+        info "instalando $package"
+        if run_sudo "pacman: $package" pacman -S --needed --noconfirm "$package"; then
+            ok "$package"
+            PACMAN_INSTALLED+=("$package")
+        else
+            error "pacote falhou: $package"
+            info "log: $LOG_FILE"
+            FAILURES+=("pacman:$package")
+        fi
+    done
+    already_count=$((${#PACMAN_ALREADY[@]} - already_before))
+    if (( ! VERBOSE && already_count > 0 )); then
+        if (( already_count <= 2 )); then
+            for ((index = already_before; index < ${#PACMAN_ALREADY[@]}; index++)); do
+                skip "${PACMAN_ALREADY[$index]} já instalado"
+            done
+        else
+            skip "$already_count pacotes já instalados"
+        fi
+    fi
+}

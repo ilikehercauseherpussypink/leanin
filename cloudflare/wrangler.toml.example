@@ -1,0 +1,17 @@
+# Copie este arquivo para wrangler.toml.
+# Troque OWNER pelo seu usuario no GitHub.
+# Troque pattern pelo dominio curto real.
+# Este projeto nao usa segredos, mas nao commite wrangler.toml se adicionar dados sensiveis.
+
+name = "archboot"
+main = "worker.js"
+compatibility_date = "2026-06-14"
+
+[vars]
+OWNER = "SEU_USER_GITHUB"
+REPO = "archboot"
+BRANCH = "main"
+
+[[routes]]
+pattern = "SEU_DOMINIO_CURTO"
+custom_domain = true

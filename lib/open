@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+open_url() {
+    local url=$1
+    local -a opener=()
+
+    if command_exists xdg-open; then
+        opener=(xdg-open "$url")
+    elif command_exists gio; then
+        opener=(gio open "$url")
+    elif command_exists firefox; then
+        opener=(firefox "$url")
+    elif command_exists zen-browser; then
+        opener=(zen-browser "$url")
+    elif command_exists google-chrome-stable; then
+        opener=(google-chrome-stable "$url")
+    elif command_exists chromium; then
+        opener=(chromium "$url")
+    elif command_exists librewolf; then
+        opener=(librewolf "$url")
+    else
+        warn 'nenhum navegador compatível foi encontrado'
+        info "abra manualmente: $url"
+        return 1
+    fi
+
+    if (( DRY_RUN )); then
+        dry_run_msg "${opener[@]}"
+        return 0
+    fi
+    "${opener[@]}" >/dev/null 2>&1 &
+    ok "URL aberta: $url"
+}
