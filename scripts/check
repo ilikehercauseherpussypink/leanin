@@ -31,7 +31,7 @@ app_lines() {
     done <"$file"
 }
 
-step 1 8 'validando estrutura'
+step 1 9 'validando estrutura'
 required=(
     install.sh README.md CHANGELOG.md LICENSE .gitignore
     scripts/check scripts/github
@@ -49,7 +49,7 @@ for file in "${required[@]}"; do
     check_file "$file"
 done
 
-step 2 8 'validando sintaxe Bash'
+step 2 9 'validando sintaxe Bash'
 mapfile -t bash_files < <(printf '%s\n' install.sh scripts/check scripts/github; find lib -maxdepth 1 -type f | sort)
 for file in "${bash_files[@]}"; do
     if bash -n "$file"; then
@@ -60,7 +60,7 @@ for file in "${bash_files[@]}"; do
     fi
 done
 
-step 3 8 'validando listas de apps'
+step 3 9 'validando listas de apps'
 flatpak_pattern='^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){2,}$'
 for file in apps/flatpak/*; do
     while IFS= read -r app; do
@@ -102,7 +102,7 @@ else
     ((failures += 1))
 fi
 
-step 4 8 'validando regras de segurança'
+step 4 9 'validando regras de segurança'
 forbidden_step=$(printf '%s%s' '==' '>')
 if grep -RFn --exclude-dir=.git -- "$forbidden_step" . >/dev/null 2>&1; then
     error "prefixo proibido encontrado: $forbidden_step"
@@ -181,7 +181,7 @@ else
     ((failures += 1))
 fi
 
-step 5 8 'validando semântica do dry-run'
+step 5 9 'validando semântica do dry-run'
 if dry_output=$(bash install.sh --dry-run 2>&1); then
     dry_fail=0
     if grep -Fq '[ok] chave SSH criada' <<<"$dry_output"; then
@@ -533,7 +533,49 @@ else
     ((failures += 1))
 fi
 
-step 6 8 'validando Cloudflare Worker'
+step 6 9 'validando documentação'
+docs_fail=0
+readme_tokens=(
+    'https://shelies.org'
+    'curl -fsSL https://shelies.org | bash'
+    'apps/pacman/audio'
+    'services/system'
+    'Cloudflare Worker'
+)
+for token in "${readme_tokens[@]}"; do
+    if ! grep -Fq "$token" README.md; then
+        error "README.md não contém: $token"
+        docs_fail=1
+    fi
+done
+cloudflare_readme_tokens=(
+    'https://shelies.org'
+    'https://archboot.jocaluvero.workers.dev'
+)
+for token in "${cloudflare_readme_tokens[@]}"; do
+    if ! grep -Fq "$token" cloudflare/README.md; then
+        error "cloudflare/README.md não contém: $token"
+        docs_fail=1
+    fi
+done
+first_readme_curl=$(grep -m1 'curl -fsSL' README.md || true)
+if [[ $first_readme_curl != 'curl -fsSL https://shelies.org | bash' ]]; then
+    error 'README.md não prioriza o domínio curto no quick start'
+    docs_fail=1
+fi
+for markdown_file in README.md cloudflare/README.md; do
+    if ! awk '/^```/ { open = !open } END { exit open ? 1 : 0 }' "$markdown_file"; then
+        error "$markdown_file contém bloco de código aberto"
+        docs_fail=1
+    fi
+done
+if (( docs_fail )); then
+    ((failures += 1))
+else
+    ok 'documentação alinhada com o domínio curto e a estrutura atual'
+fi
+
+step 7 9 'validando Cloudflare Worker'
 worker=cloudflare/worker.js
 worker_fail=0
 worker_tokens=(
@@ -609,7 +651,7 @@ else
     ok 'Cloudflare Worker válido'
 fi
 
-step 7 8 'procurando segredos óbvios'
+step 8 9 'procurando segredos óbvios'
 secret_regex='OPENAI_''API_KEY=|gh''p_|github_''pat_|s''k-|pass''word=|pass''wd=|PRIVATE ''KEY|BEGIN OPENSSH PRIVATE ''KEY|BEGIN RSA PRIVATE ''KEY'
 secret_found=0
 while IFS= read -r -d '' file; do
@@ -632,7 +674,7 @@ else
     ok 'nenhum segredo óbvio encontrado'
 fi
 
-step 8 8 'executando shellcheck'
+step 9 9 'executando shellcheck'
 if command -v shellcheck >/dev/null 2>&1; then
     if shellcheck -x "${bash_files[@]}"; then
         ok 'shellcheck'
