@@ -10,3 +10,8 @@
 * Added Codex CLI installation with an isolated `~/.codex` npm prefix.
 * Added Git identity, SSH key and GitHub CLI integration with automatic key registration.
 * Added honest dry-run behavior, structured logs and comprehensive local checks.
+* Added GitHub Actions checks for Bash, ShellCheck and the Cloudflare Worker.
+* Added `--version` and a read-only `--plan` mode.
+* Added granular `--no-*` installer control flags.
+* Added `--yes` with non-interactive safe defaults.
+* Added a portable, dry-run-only CI mode.

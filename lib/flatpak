@@ -32,6 +32,11 @@ flatpak_remote() {
 
 flatpak_setup() {
     if ! command_exists flatpak; then
+        if (( ${SKIP_PACMAN:-0} )); then
+            FLATPAK_AVAILABLE=0
+            skip 'flatpak ausente e pacman desativado por flag'
+            return 1
+        fi
         info 'flatpak ausente; instalando via pacman'
         pacman_install flatpak
     fi

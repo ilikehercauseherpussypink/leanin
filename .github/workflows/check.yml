@@ -1,0 +1,36 @@
+name: check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run project checks
+        run: bash scripts/check
+
+      - name: Run portable installer dry-run
+        run: >-
+          ARCHBOOT_CI=1 bash install.sh --dry-run --no-packages
+          --no-services --no-ssh --no-github --no-codex
+
+      - name: Check Cloudflare Worker syntax
+        run: node --check cloudflare/worker.js

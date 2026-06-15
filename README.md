@@ -14,6 +14,18 @@ Dry-run, sem alterar o sistema:
 curl -fsSL https://shelies.org | bash -s -- --dry-run
 ```
 
+Mostrar somente o plano:
+
+```bash
+curl -fsSL https://shelies.org | bash -s -- --plan
+```
+
+Mostrar a versão:
+
+```bash
+curl -fsSL https://shelies.org | bash -s -- --version
+```
+
 Modo verbose:
 
 ```bash
@@ -29,6 +41,33 @@ bash install.sh
 ```
 
 Executar via `curl | bash` é conveniente, mas baixar e auditar o script antes é a opção mais segura.
+
+## Installer controls
+
+Exemplos locais:
+
+```bash
+bash install.sh --dry-run --no-ssh --no-github
+bash install.sh --yes
+bash install.sh --plan --verbose
+```
+
+Flags disponíveis:
+
+* `--plan`: mostra apps, serviços e integrações habilitadas sem executar ações.
+* `--version`: imprime a versão do archboot.
+* `--yes`: usa defaults seguros sem prompts; não sobrescreve identidade ou chave existente e nunca confirma exclusões perigosas.
+* `--no-packages`: desativa pacman, Flatpak e AUR.
+* `--no-pacman`: desativa pacotes dos repositórios Arch.
+* `--no-flatpak`: desativa Flatpak, Flathub e apps Flatpak.
+* `--no-aur`: desativa helper e pacotes AUR.
+* `--no-services`: não ativa serviços system/user.
+* `--no-codex`: não configura ou instala Codex.
+* `--no-git`: não altera configuração Git.
+* `--no-ssh`: não configura SSH e também desativa a integração GitHub SSH.
+* `--no-github`: não cadastra chave, testa SSH GitHub ou executa autenticação `gh`.
+
+`--yes` significa "non-interactive safe defaults", não confirmação irrestrita. Quando não existe um default seguro, a ação é pulada com aviso.
 
 ## What it does
 
@@ -212,6 +251,15 @@ bash scripts/check
 ```
 
 O checker valida estrutura, sintaxe Bash, ShellCheck, segredos óbvios, segurança do dry-run, Cloudflare Worker, listas de apps, serviços e documentação.
+
+O GitHub Actions executa o mesmo checker, valida o Worker com Node.js e usa um dry-run portátil. O modo abaixo existe apenas para CI e só funciona com `--dry-run` ou `--plan`:
+
+```bash
+ARCHBOOT_CI=1 bash install.sh --plan
+ARCHBOOT_CI=1 bash install.sh --dry-run --no-packages --no-services --no-ssh --no-github --no-codex
+```
+
+`ARCHBOOT_CI=1` não ignora segurança em uma instalação real: sem `--dry-run` ou `--plan`, o instalador aborta.
 
 ## Publish
 

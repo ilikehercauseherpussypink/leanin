@@ -7,6 +7,10 @@ is_interactive() {
 yesno() {
     local question=$1 default=${2:-n} answer prompt_hint
 
+    if (( ${ASSUME_YES:-0} )); then
+        [[ $default == s || $default == y ]]
+        return
+    fi
     if ! is_interactive; then
         [[ $default == s || $default == y ]]
         return
@@ -33,6 +37,10 @@ yesno() {
 prompt() {
     local variable=$1 question=$2 default=${3:-} answer
 
+    if (( ${ASSUME_YES:-0} )); then
+        printf -v "$variable" '%s' "$default"
+        return 0
+    fi
     if ! is_interactive; then
         printf -v "$variable" '%s' "$default"
         return 0
@@ -49,6 +57,7 @@ prompt() {
 
 pause() {
     local message=${1:-'Pressione Enter para continuar.'}
+    (( ${ASSUME_YES:-0} )) && return 0
     is_interactive || return 0
     read -r -p "> [ask] $message" _ || true
 }

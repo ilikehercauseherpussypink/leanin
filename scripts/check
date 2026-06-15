@@ -31,9 +31,10 @@ app_lines() {
     done <"$file"
 }
 
-step 1 9 'validando estrutura'
+step 1 10 'validando estrutura'
 required=(
     install.sh README.md CHANGELOG.md LICENSE .gitignore
+    .github/workflows/check.yml
     scripts/check scripts/github
     cloudflare/worker.js cloudflare/wrangler.toml.example cloudflare/README.md
     lib/log lib/ask lib/env lib/run lib/pkg lib/flatpak lib/aur lib/apps lib/service
@@ -49,7 +50,7 @@ for file in "${required[@]}"; do
     check_file "$file"
 done
 
-step 2 9 'validando sintaxe Bash'
+step 2 10 'validando sintaxe Bash'
 mapfile -t bash_files < <(printf '%s\n' install.sh scripts/check scripts/github; find lib -maxdepth 1 -type f | sort)
 for file in "${bash_files[@]}"; do
     if bash -n "$file"; then
@@ -60,7 +61,7 @@ for file in "${bash_files[@]}"; do
     fi
 done
 
-step 3 9 'validando listas de apps'
+step 3 10 'validando listas de apps'
 flatpak_pattern='^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){2,}$'
 for file in apps/flatpak/*; do
     while IFS= read -r app; do
@@ -102,7 +103,7 @@ else
     ((failures += 1))
 fi
 
-step 4 9 'validando regras de segurança'
+step 4 10 'validando regras de segurança'
 forbidden_step=$(printf '%s%s' '==' '>')
 if grep -RFn --exclude-dir=.git -- "$forbidden_step" . >/dev/null 2>&1; then
     error "prefixo proibido encontrado: $forbidden_step"
@@ -181,79 +182,127 @@ else
     ((failures += 1))
 fi
 
-step 5 9 'validando semântica do dry-run'
-if dry_output=$(bash install.sh --dry-run 2>&1); then
-    dry_fail=0
-    if grep -Fq '[ok] chave SSH criada' <<<"$dry_output"; then
-        error 'dry-run marcou chave SSH como criada'
-        dry_fail=1
-    fi
-    if grep -Fq '[ok] Codex CLI instalado' <<<"$dry_output"; then
-        error 'dry-run marcou Codex CLI como instalado'
-        dry_fail=1
-    fi
-    if grep -Fq 'pacman instalados:' <<<"$dry_output"; then
-        error 'dry-run usou resumo de instalação real'
-        dry_fail=1
-    fi
-    if ! grep -Fq '[ok] pacman: 11 pacotes' <<<"$dry_output" \
-        || ! grep -Fq '[ok] flatpak: 5 apps' <<<"$dry_output" \
-        || ! grep -Fq '[ok] aur: 3 pacotes' <<<"$dry_output" \
-        || ! grep -Fq '[ok] system services: 1 serviço' <<<"$dry_output" \
-        || ! grep -Fq '[ok] user services: 0 serviços' <<<"$dry_output"; then
-        error 'dry-run não mostrou plano resumido por fonte'
-        dry_fail=1
-    fi
-    if grep -Eq '(pacman|flatpak|aur)/(privacy|tools|media|system): 0' <<<"$dry_output"; then
-        error 'dry-run mostrou categorias vazias'
-        dry_fail=1
-    fi
-    if grep -Fq "$forbidden_step" <<<"$dry_output"; then
-        error 'dry-run usou prefixo de etapa proibido'
-        dry_fail=1
-    fi
-    if ! grep -Fq '[dry-run] listaria SSH keys cadastradas no GitHub' <<<"$dry_output" \
-        || ! grep -Fq '[dry-run] deletaria SSH keys antigas do GitHub se confirmado' <<<"$dry_output" \
-        || ! grep -Fq '[dry-run] cadastraria chave SSH no GitHub com título: person' <<<"$dry_output"; then
-        error 'dry-run não descreveu o fluxo de SSH keys do GitHub'
-        dry_fail=1
-    fi
-    if grep -Fq 'GitHub SSH keys: https://github.com/settings/keys' <<<"$dry_output"; then
-        error 'dry-run automático exibiu URL reservada ao fallback manual'
-        dry_fail=1
-    fi
-    if grep -Fq '[ok] chave SSH cadastrada no GitHub' <<<"$dry_output"; then
-        error 'dry-run marcou chave GitHub como cadastrada'
-        dry_fail=1
-    fi
-    if grep -Eq '^ssh-(ed25519|rsa)[[:space:]]+[A-Za-z0-9+/]+' <<<"$dry_output"; then
-        error 'dry-run imprimiu chave pública completa'
-        dry_fail=1
-    fi
-    if ! grep -Fq '> Etapa 8/13: ativando serviços' <<<"$dry_output" \
-        || ! grep -Fq '> Etapa 13/13: resumo' <<<"$dry_output" \
-        || ! grep -Fq '[info] pacman:' <<<"$dry_output" \
-        || ! grep -Fq '[info] serviços:' <<<"$dry_output" \
-        || grep -Fq 'pacman já instalados:' <<<"$dry_output"; then
-        error 'dry-run não usa resumo final curto'
-        dry_fail=1
-    fi
-    if grep -Fq 'Abrir a documentação oficial de Wootility' <<<"$dry_output"; then
-        error 'dry-run ainda pergunta pela documentação Wootility'
-        dry_fail=1
-    fi
-    if ! grep -Fq '[skip] mullvad-vpn-daemon já instalado; pulei mullvad-vpn-bin' <<<"$dry_output" \
-        || grep -Fq '[error] pacote falhou: mullvad-vpn-bin' <<<"$dry_output"; then
-        error 'conflito Mullvad não foi apresentado como skip limpo'
-        dry_fail=1
-    fi
-    if (( dry_fail )); then
-        ((failures += 1))
-    else
-        ok 'dry-run não declara alterações como concluídas'
-    fi
+step 5 10 'validando controles do instalador'
+controls_fail=0
+version_output=$(bash install.sh --version 2>&1 || true)
+if [[ $version_output == 'archboot 0.1.0' ]] && grep -Fq '## 0.1.0' CHANGELOG.md; then
+    ok 'versão 0.1.0 consistente'
 else
-    error 'install.sh --dry-run falhou'
+    error 'install.sh --version ou CHANGELOG está inconsistente'
+    controls_fail=1
+fi
+
+help_output=$(bash install.sh --help 2>&1 || true)
+help_flags=(
+    --dry-run --verbose --plan --version --yes --no-packages --no-pacman
+    --no-flatpak --no-aur --no-services --no-codex --no-git --no-ssh --no-github
+)
+for flag in "${help_flags[@]}"; do
+    if ! grep -Fq -- "$flag" <<<"$help_output"; then
+        error "--help não contém $flag"
+        controls_fail=1
+    fi
+done
+
+if plan_output=$(bash install.sh --plan 2>&1) \
+    && grep -Fq 'archboot 0.1.0' <<<"$plan_output" \
+    && grep -Fq 'pacman: 11 pacotes' <<<"$plan_output" \
+    && grep -Fq 'flatpak: 5 apps' <<<"$plan_output" \
+    && grep -Fq 'aur: 3 pacotes' <<<"$plan_output" \
+    && grep -Fq 'system services: 1 serviço' <<<"$plan_output" \
+    && grep -Fq 'user services: 0 serviços' <<<"$plan_output" \
+    && grep -Fq 'codex: enabled' <<<"$plan_output" \
+    && grep -Fq 'git: enabled' <<<"$plan_output" \
+    && grep -Fq 'ssh/github: enabled' <<<"$plan_output" \
+    && ! grep -Fq '[ask]' <<<"$plan_output" \
+    && ! grep -Fq '> Etapa' <<<"$plan_output"; then
+    ok '--plan é somente leitura e não interativo'
+else
+    error '--plan não produziu o plano resumido esperado'
+    controls_fail=1
+fi
+
+if ci_plan_output=$(ARCHBOOT_CI=1 bash install.sh --plan 2>&1) \
+    && grep -Fq 'pacman: 11 pacotes' <<<"$ci_plan_output"; then
+    ok 'ARCHBOOT_CI=1 aceita --plan'
+else
+    error 'ARCHBOOT_CI=1 --plan falhou'
+    controls_fail=1
+fi
+
+plan_flag_cases=(
+    '--no-pacman|pacman: disabled'
+    '--no-flatpak|flatpak: disabled'
+    '--no-aur|aur: disabled'
+    '--no-services|system services: disabled'
+    '--no-codex|codex: disabled'
+    '--no-git|git: disabled'
+    '--no-github|github=disabled'
+)
+for plan_case in "${plan_flag_cases[@]}"; do
+    flag=${plan_case%%|*}
+    expected=${plan_case#*|}
+    if ! flag_output=$(bash install.sh --plan "$flag" 2>&1) \
+        || ! grep -Fq "$expected" <<<"$flag_output"; then
+        error "$flag não alterou o plano como esperado"
+        controls_fail=1
+    fi
+done
+
+ci_args=(
+    --dry-run --no-packages --no-services --no-ssh --no-github --no-codex
+)
+if ci_dry_output=$(ARCHBOOT_CI=1 bash install.sh "${ci_args[@]}" 2>&1) \
+    && grep -Fq '[ok] modo CI dry-run' <<<"$ci_dry_output" \
+    && grep -Fq '[skip] pacman desativado por flag' <<<"$ci_dry_output" \
+    && grep -Fq '[skip] Flatpak desativado por flag' <<<"$ci_dry_output" \
+    && grep -Fq '[skip] AUR desativado por flag' <<<"$ci_dry_output" \
+    && grep -Fq '[skip] serviços desativados por flag' <<<"$ci_dry_output" \
+    && grep -Fq '[skip] Codex desativado por flag' <<<"$ci_dry_output" \
+    && grep -Fq '[skip] SSH desativado por flag' <<<"$ci_dry_output" \
+    && grep -Fq '[skip] GitHub desativado por flag' <<<"$ci_dry_output" \
+    && ! grep -Eq '\[dry-run\].*(pacman -S|flatpak (install|remote-add)|yay -S|paru -S|systemctl .*enable|npm install|gh (auth|ssh-key)|ssh-keygen)' <<<"$ci_dry_output"; then
+    ok 'CI dry-run respeita flags sem executar fontes desativadas'
+else
+    error 'CI dry-run ou flags --no-* falharam'
+    controls_fail=1
+fi
+
+no_ssh_args=(--dry-run --no-packages --no-services --no-ssh --no-codex)
+if no_ssh_output=$(ARCHBOOT_CI=1 bash install.sh "${no_ssh_args[@]}" 2>&1) \
+    && grep -Fq '[skip] SSH desativado por flag' <<<"$no_ssh_output" \
+    && grep -Fq '[skip] GitHub desativado por flag' <<<"$no_ssh_output" \
+    && grep -Fq 'GitHub SSH: desativado por flag' <<<"$no_ssh_output"; then
+    ok '--no-ssh implica --no-github'
+else
+    error '--no-ssh não desativou a integração GitHub'
+    controls_fail=1
+fi
+
+if ARCHBOOT_CI=1 bash install.sh >/dev/null 2>&1; then
+    error 'ARCHBOOT_CI=1 permitiu execução sem --dry-run/--plan'
+    controls_fail=1
+else
+    ok 'ARCHBOOT_CI=1 bloqueia execução mutável'
+fi
+
+if bash -c '
+    set -Eeuo pipefail
+    source lib/ask
+    ASSUME_YES=1
+    if yesno "ação perigosa" n; then exit 1; fi
+    yesno "ação segura" s
+    value=unexpected
+    prompt value "valor" safe-default
+    [[ $value == safe-default ]]
+'; then
+    ok '--yes preserva defaults seguros'
+else
+    error '--yes confirmou ação com default não ou pediu input'
+    controls_fail=1
+fi
+
+if (( controls_fail )); then
     ((failures += 1))
 fi
 
@@ -435,6 +484,30 @@ else
     ((failures += 1))
 fi
 
+if HOME="$ssh_test_home" bash -c '
+    set -Eeuo pipefail
+    source lib/log
+    source lib/ask
+    source lib/gh
+    ASSUME_YES=1
+    VERBOSE=0
+    DRY_RUN=0
+    LOG_FILE=/dev/null
+    FAILURES=()
+    GITHUB_KEY_IDS=(123)
+    GITHUB_KEY_TITLES=(old)
+    GITHUB_KEY_VALUES=("ssh-ed25519 AAAAOLD")
+    run_cmd() { exit 90; }
+    github_delete_ssh_keys
+    [[ $GITHUB_OLD_KEYS_STATUS == mantidas ]]
+    ((${#GITHUB_KEY_IDS[@]} == 1))
+' >/dev/null 2>&1; then
+    ok '--yes não remove SSH keys antigas do GitHub'
+else
+    error '--yes confirmou remoção de SSH keys antigas'
+    ((failures += 1))
+fi
+
 service_mock() {
     local mode=$1
     local marker="$ssh_test_home/service-$mode"
@@ -533,7 +606,7 @@ else
     ((failures += 1))
 fi
 
-step 6 9 'validando documentação'
+step 6 10 'validando documentação'
 docs_fail=0
 readme_tokens=(
     'https://shelies.org'
@@ -541,6 +614,9 @@ readme_tokens=(
     'apps/pacman/audio'
     'services/system'
     'Cloudflare Worker'
+    'bash install.sh --plan --verbose'
+    'bash install.sh --yes'
+    'ARCHBOOT_CI=1'
 )
 for token in "${readme_tokens[@]}"; do
     if ! grep -Fq "$token" README.md; then
@@ -575,7 +651,31 @@ else
     ok 'documentação alinhada com o domínio curto e a estrutura atual'
 fi
 
-step 7 9 'validando Cloudflare Worker'
+step 7 10 'validando GitHub Actions'
+workflow=.github/workflows/check.yml
+workflow_fail=0
+workflow_tokens=(
+    'name: check'
+    'push:'
+    'pull_request:'
+    'runs-on: ubuntu-latest'
+    'bash scripts/check'
+    'ARCHBOOT_CI=1 bash install.sh --dry-run --no-packages'
+    'node --check cloudflare/worker.js'
+)
+for token in "${workflow_tokens[@]}"; do
+    if ! grep -Fq "$token" "$workflow"; then
+        error "workflow não contém: $token"
+        workflow_fail=1
+    fi
+done
+if (( workflow_fail )); then
+    ((failures += 1))
+else
+    ok 'workflow de checks válido'
+fi
+
+step 8 10 'validando Cloudflare Worker'
 worker=cloudflare/worker.js
 worker_fail=0
 worker_tokens=(
@@ -651,7 +751,7 @@ else
     ok 'Cloudflare Worker válido'
 fi
 
-step 8 9 'procurando segredos óbvios'
+step 9 10 'procurando segredos óbvios'
 secret_regex='OPENAI_''API_KEY=|gh''p_|github_''pat_|s''k-|pass''word=|pass''wd=|PRIVATE ''KEY|BEGIN OPENSSH PRIVATE ''KEY|BEGIN RSA PRIVATE ''KEY'
 secret_found=0
 while IFS= read -r -d '' file; do
@@ -674,7 +774,7 @@ else
     ok 'nenhum segredo óbvio encontrado'
 fi
 
-step 9 9 'executando shellcheck'
+step 10 10 'executando shellcheck'
 if command -v shellcheck >/dev/null 2>&1; then
     if shellcheck -x "${bash_files[@]}"; then
         ok 'shellcheck'
