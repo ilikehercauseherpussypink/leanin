@@ -853,6 +853,8 @@ workflow_tokens=(
     'push:'
     'pull_request:'
     'runs-on: ubuntu-latest'
+    'actions/checkout@v6'
+    'actions/setup-node@v6'
     'bash scripts/check'
     'ARCHBOOT_CI=1 bash install.sh --dry-run --no-packages'
     'node --check cloudflare/worker.js'
