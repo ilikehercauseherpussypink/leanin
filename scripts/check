@@ -185,7 +185,7 @@ fi
 step 5 10 'validando controles do instalador'
 controls_fail=0
 version_output=$(bash install.sh --version 2>&1 || true)
-if piped_version_output=$(set -o pipefail; cat install.sh | bash -s -- --version) \
+if piped_version_output=$(set -o pipefail; sed -n p install.sh | bash -s -- --version) \
     && [[ $version_output == 'archboot 0.1.0' ]] \
     && [[ $piped_version_output == 'archboot 0.1.0' ]] \
     && grep -Fq '## 0.1.0' CHANGELOG.md; then
