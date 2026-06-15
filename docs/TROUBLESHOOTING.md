@@ -1,6 +1,13 @@
 # Troubleshooting
 
-Comece pelo plano ou pelo dry-run para separar problemas de configuração de alterações reais:
+Comece pelo doctor para obter um diagnóstico rápido sem alterar o sistema:
+
+```bash
+curl -fsSL https://shelies.org | bash -s -- --doctor
+bash install.sh --doctor
+```
+
+Use o plano ou o dry-run para inspecionar as ações seguintes:
 
 ```bash
 bash install.sh --dry-run

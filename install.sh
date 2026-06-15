@@ -20,7 +20,7 @@ for argument in "$@"; do
         --version) EARLY_VERSION=1 ;;
         --plan) EARLY_PLAN=1 ;;
         --verbose) EARLY_VERBOSE=1 ;;
-        --dry-run|--yes|--no-packages|--no-pacman|--no-flatpak|--no-aur|\
+        --doctor|--dry-run|--yes|--no-packages|--no-pacman|--no-flatpak|--no-aur|\
             --no-services|--no-codex|--no-git|--no-ssh|--no-github|--help|-h) ;;
         *)
             printf '> [error] opção desconhecida: %s\n' "$argument" >&2
@@ -185,6 +185,8 @@ source "$ARCHBOOT_ROOT/lib/log"
 source "$ARCHBOOT_ROOT/lib/ask"
 # shellcheck source=lib/env
 source "$ARCHBOOT_ROOT/lib/env"
+# shellcheck source=lib/doctor
+source "$ARCHBOOT_ROOT/lib/doctor"
 # shellcheck source=lib/run
 source "$ARCHBOOT_ROOT/lib/run"
 # shellcheck source=lib/apps
@@ -211,6 +213,7 @@ source "$ARCHBOOT_ROOT/lib/gh"
 VERBOSE=0
 DRY_RUN=0
 PLAN_ONLY=0
+DOCTOR_ONLY=0
 ASSUME_YES=0
 CI_MODE=${ARCHBOOT_CI:-0}
 SKIP_PACMAN=0
@@ -234,6 +237,7 @@ Uso: bash install.sh [opções]
   --dry-run       mostra ações sem alterar o sistema
   --verbose       mostra comandos e saída completa
   --plan          mostra somente o plano resumido
+  --doctor        verifica o ambiente sem alterar o sistema
   --version       mostra a versão instalada
   --yes           usa defaults seguros sem prompts
   --no-packages   pula pacman, Flatpak e AUR
@@ -255,6 +259,7 @@ parse_args() {
             --verbose) VERBOSE=1 ;;
             --dry-run) DRY_RUN=1 ;;
             --plan) PLAN_ONLY=1 ;;
+            --doctor) DOCTOR_ONLY=1 ;;
             --yes) ASSUME_YES=1 ;;
             --no-packages)
                 SKIP_PACMAN=1
@@ -500,8 +505,12 @@ main() {
     parse_args "$@"
     collect_disabled_features
 
-    if [[ $CI_MODE == 1 && $DRY_RUN != 1 && $PLAN_ONLY != 1 ]]; then
-        die 'ARCHBOOT_CI=1 exige --dry-run ou --plan'
+    if [[ $CI_MODE == 1 && $DRY_RUN != 1 && $PLAN_ONLY != 1 && $DOCTOR_ONLY != 1 ]]; then
+        die 'ARCHBOOT_CI=1 exige --dry-run, --plan ou --doctor'
+    fi
+    if (( DOCTOR_ONLY )); then
+        doctor_run
+        return $?
     fi
     if (( PLAN_ONLY )); then
         show_plan_only

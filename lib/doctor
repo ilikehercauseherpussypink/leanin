@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+
+_doctor_essential_failure() {
+    error "$1"
+    ((DOCTOR_FAILURES += 1))
+}
+
+_doctor_ci() {
+    info 'modo CI: diagnóstico do host pulado'
+    if [[ -s $ARCHBOOT_ROOT/services/system ]]; then
+        ok 'services/system disponível'
+    else
+        _doctor_essential_failure 'services/system ausente ou vazio'
+    fi
+}
+
+_doctor_system() {
+    if arch; then
+        ok 'Arch Linux detectado'
+    else
+        _doctor_essential_failure 'Arch Linux não detectado'
+    fi
+
+    if root; then
+        _doctor_essential_failure 'execução como root; use um usuário comum'
+    else
+        ok 'execução como usuário comum'
+    fi
+
+    if command_exists sudo; then
+        ok 'sudo disponível'
+    else
+        _doctor_essential_failure 'sudo ausente'
+    fi
+
+    if command_exists curl \
+        && curl -fsSLI --retry 1 --connect-timeout 5 --max-time 12 \
+            https://archlinux.org/ >/dev/null 2>&1; then
+        ok 'internet disponível'
+    else
+        _doctor_essential_failure 'internet indisponível; teste: curl -I https://archlinux.org'
+    fi
+
+    if command_exists pacman; then
+        ok 'pacman disponível'
+    else
+        _doctor_essential_failure 'pacman ausente'
+    fi
+
+    if [[ -e /var/lib/pacman/db.lck ]]; then
+        _doctor_essential_failure 'pacman lock ativo'
+    else
+        ok 'pacman sem lock'
+    fi
+
+    if [[ -s $ARCHBOOT_ROOT/services/system ]]; then
+        ok 'services/system disponível'
+    else
+        _doctor_essential_failure 'services/system ausente ou vazio'
+    fi
+}
+
+_doctor_packages() {
+    local helper='none' codex_path=''
+
+    if command_exists flatpak; then
+        ok 'flatpak disponível'
+        if flatpak remotes --columns=name 2>/dev/null | grep -Fxq flathub; then
+            ok 'flathub configurado'
+        else
+            info 'flathub não configurado'
+        fi
+    else
+        info 'flatpak não disponível'
+    fi
+
+    if command_exists paru; then
+        helper=paru
+    elif command_exists yay; then
+        helper=yay
+    fi
+    if [[ $helper == none ]]; then
+        info 'AUR helper: none'
+    else
+        ok "AUR helper: $helper"
+    fi
+
+    if command_exists git; then
+        ok 'git disponível'
+    else
+        info 'git não disponível'
+    fi
+
+    if command_exists npm; then
+        ok 'npm disponível'
+    else
+        info 'npm não disponível'
+    fi
+
+    if [[ -x $HOME/.codex/bin/codex ]]; then
+        ok 'Codex: ~/.codex/bin/codex'
+    elif codex_path=$(command -v codex 2>/dev/null); then
+        info "Codex encontrado no PATH: $codex_path"
+    else
+        info 'Codex não detectado'
+    fi
+}
+
+_doctor_github() {
+    local ssh_output='' ssh_status=0
+
+    if command_exists gh; then
+        ok 'gh disponível'
+        if gh auth status >/dev/null 2>&1; then
+            info 'gh autenticado'
+        else
+            info 'gh não autenticado; use: gh auth login'
+        fi
+    else
+        info 'gh não disponível'
+    fi
+
+    if [[ -f $HOME/.ssh/id_ed25519.pub ]]; then
+        ok 'SSH key local: ~/.ssh/id_ed25519.pub'
+    else
+        info 'SSH key padrão não encontrada'
+    fi
+
+    if command_exists ssh && command_exists timeout; then
+        set +e
+        ssh_output=$(timeout 10 ssh -T -o BatchMode=yes -o ConnectTimeout=5 \
+            -o ConnectionAttempts=1 -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile=/dev/null git@github.com 2>&1)
+        ssh_status=$?
+        set -e
+        if [[ $ssh_output == *'successfully authenticated'* \
+            || $ssh_output == *"You've successfully authenticated"* \
+            || $ssh_output == *'does not provide shell access'* ]]; then
+            info 'SSH GitHub autenticado'
+        else
+            info "SSH GitHub não confirmado (código $ssh_status)"
+        fi
+    else
+        info 'teste SSH GitHub pulado'
+    fi
+}
+
+_doctor_services() {
+    local service=mullvad-daemon.service
+    if ! command_exists systemctl; then
+        info 'systemctl não disponível'
+        return 0
+    fi
+    if ! systemctl cat "$service" >/dev/null 2>&1; then
+        info "$service ausente"
+    elif systemctl is-active --quiet "$service" >/dev/null 2>&1; then
+        info "$service ativo"
+    else
+        info "$service inativo"
+    fi
+}
+
+doctor_run() {
+    DOCTOR_FAILURES=0
+    printf '> doctor\n'
+
+    if [[ ${CI_MODE:-0} == 1 ]]; then
+        _doctor_ci
+    else
+        _doctor_system
+        _doctor_packages
+        _doctor_github
+        _doctor_services
+    fi
+
+    if (( DOCTOR_FAILURES > 0 )); then
+        error "diagnóstico encontrou $DOCTOR_FAILURES problema(s) essencial(is)"
+        return 1
+    fi
+    ok 'diagnóstico concluído'
+}

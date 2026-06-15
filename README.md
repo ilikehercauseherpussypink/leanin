@@ -42,6 +42,15 @@ bash install.sh
 
 Executar via `curl | bash` é conveniente, mas baixar e auditar o script antes é a opção mais segura.
 
+## Doctor
+
+```bash
+curl -fsSL https://shelies.org | bash -s -- --doctor
+bash install.sh --doctor
+```
+
+O doctor verifica rapidamente o ambiente e as integrações principais sem instalar, configurar ou remover nada. É útil antes da instalação real.
+
 ## Installer controls
 
 Exemplos locais:
@@ -55,6 +64,7 @@ bash install.sh --plan --verbose
 Flags disponíveis:
 
 * `--plan`: mostra apps, serviços e integrações habilitadas sem executar ações.
+* `--doctor`: diagnostica sistema, ferramentas e integrações sem alterar o ambiente.
 * `--version`: imprime a versão do archboot.
 * `--yes`: usa defaults seguros sem prompts; não sobrescreve identidade ou chave existente e nunca confirma exclusões perigosas.
 * `--no-packages`: desativa pacman, Flatpak e AUR.

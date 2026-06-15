@@ -27,6 +27,9 @@ jobs:
       - name: Run project checks
         run: bash scripts/check
 
+      - name: Run portable doctor
+        run: ARCHBOOT_CI=1 bash install.sh --doctor
+
       - name: Run portable installer dry-run
         run: >-
           ARCHBOOT_CI=1 bash install.sh --dry-run --no-packages

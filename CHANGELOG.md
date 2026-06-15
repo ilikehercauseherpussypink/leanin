@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Added `--doctor` for quick local diagnostics.
+* Kept the personal fast main-based installer flow.
 * Initial technical hardening.
 * Expanded structural, argument, security and bootstrap checks.
 * Removed unused internal state.

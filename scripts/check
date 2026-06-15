@@ -41,7 +41,7 @@ required=(
     .github/workflows/check.yml
     scripts/check scripts/github
     cloudflare/worker.js cloudflare/wrangler.toml.example cloudflare/README.md
-    lib/log lib/ask lib/env lib/run lib/pkg lib/flatpak lib/aur lib/apps lib/service
+    lib/log lib/ask lib/env lib/doctor lib/run lib/pkg lib/flatpak lib/aur lib/apps lib/service
     lib/git lib/ssh lib/gh lib/codex lib/open
     apps/pacman/base apps/pacman/dev apps/pacman/browsers apps/pacman/audio
     apps/pacman/privacy apps/pacman/system
@@ -558,7 +558,7 @@ if ! help_output=$(bash install.sh --help 2>&1); then
     help_output=''
 fi
 help_flags=(
-    --dry-run --verbose --plan --version --yes --no-packages --no-pacman
+    --dry-run --verbose --plan --doctor --version --yes --no-packages --no-pacman
     --no-flatpak --no-aur --no-services --no-codex --no-git --no-ssh --no-github
 )
 for flag in "${help_flags[@]}"; do
@@ -611,6 +611,38 @@ if verbose_plan_output=$(bash install.sh --plan --verbose 2>&1) \
 else
     error '--plan --verbose falhou ou pediu input'
     controls_fail=1
+fi
+
+if [[ -r /etc/os-release ]] && grep -Eq '^ID=arch$|^ID_LIKE=.*arch' /etc/os-release; then
+    if doctor_output=$(bash install.sh --doctor 2>&1) \
+        && grep -Fq '> doctor' <<<"$doctor_output" \
+        && grep -Fq '[ok] diagnóstico concluído' <<<"$doctor_output" \
+        && ! grep -Fq '[ask]' <<<"$doctor_output"; then
+        ok '--doctor local é somente leitura e não interativo'
+    else
+        error '--doctor local falhou'
+        controls_fail=1
+    fi
+else
+    skip '--doctor local requer host Arch; validação portátil será usada'
+fi
+
+if ci_doctor_output=$(ARCHBOOT_CI=1 bash install.sh --doctor 2>&1) \
+    && grep -Fq '[info] modo CI: diagnóstico do host pulado' <<<"$ci_doctor_output" \
+    && grep -Fq '[ok] diagnóstico concluído' <<<"$ci_doctor_output" \
+    && ! grep -Fq '[ask]' <<<"$ci_doctor_output"; then
+    ok 'ARCHBOOT_CI=1 aceita --doctor'
+else
+    error 'ARCHBOOT_CI=1 --doctor falhou'
+    controls_fail=1
+fi
+
+doctor_mutation_regex='pacman[[:space:]]+-S|flatpak[[:space:]]+(install|remote-add)|(^|[[:space:]])(yay|paru)[[:space:]]+-S|npm[[:space:]]+install|gh[[:space:]]+ssh-key[[:space:]]+(add|delete)|systemctl([^[:cntrl:]]*)enable([^[:cntrl:]]*)--now'
+if grep -En "$doctor_mutation_regex" lib/doctor >/dev/null 2>&1; then
+    error '--doctor contém comando mutável'
+    controls_fail=1
+else
+    ok '--doctor não contém comandos de instalação, cadastro ou ativação'
 fi
 
 if ci_plan_output=$(ARCHBOOT_CI=1 bash install.sh --plan 2>&1) \
@@ -1028,6 +1060,7 @@ readme_tokens=(
     'Cloudflare Worker'
     'bash install.sh --plan --verbose'
     'bash install.sh --yes'
+    'bash install.sh --doctor'
     'ARCHBOOT_CI=1'
     'Safer audit-first install'
     'https://github.com/OWNER/REPO'
@@ -1050,6 +1083,7 @@ for token in "${cloudflare_readme_tokens[@]}"; do
     fi
 done
 troubleshooting_tokens=(
+    'bash -s -- --doctor'
     'https://shelies.org/health'
     'pacman lock'
     'gh auth status'
@@ -1094,6 +1128,7 @@ workflow_tokens=(
     'actions/checkout@v6'
     'actions/setup-node@v6'
     'bash scripts/check'
+    'ARCHBOOT_CI=1 bash install.sh --doctor'
     'ARCHBOOT_CI=1 bash install.sh --dry-run --no-packages'
     'node --check cloudflare/worker.js'
 )
@@ -1155,6 +1190,12 @@ fi
 if grep -Fq 'searchParams' "$worker"; then
     error 'Worker permite configuração por query string'
     worker_fail=1
+fi
+if grep -Eq 'STABLE_REF|DEV_REF|/channel|dev\.shelies\.org' "$worker"; then
+    error 'Worker contém canal stable/dev desnecessário'
+    worker_fail=1
+else
+    ok 'Worker permanece simples e baseado em main'
 fi
 worker_eval=$(printf '%s%s' 'ev' 'al')
 if grep -Fq "$worker_eval" "$worker"; then
