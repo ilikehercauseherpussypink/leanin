@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Fixed SSH key generation prompt handling when running through `curl | bash`.
 * Added Sober Roblox launcher as a default Flatpak app.
 * Added Flatpak games category.
 * Final bug hunt and output cleanup.

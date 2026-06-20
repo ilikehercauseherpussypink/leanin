@@ -1300,6 +1300,140 @@ else
     ((failures += 1))
 fi
 
+tty_file="$ssh_test_home/ssh-keygen.tty"
+keygen_marker="$ssh_test_home/ssh-keygen.marker"
+: >"$tty_file"
+cat >"$fake_bin/ssh-keygen" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf 'askpass=%s require=%s\n' "${SSH_ASKPASS-unset}" "${SSH_ASKPASS_REQUIRE-unset}" >>"$SSH_KEYGEN_MARKER"
+for fd in 0 1 2; do
+    printf 'fd%s=' "$fd" >>"$SSH_KEYGEN_MARKER"
+    readlink "/proc/self/fd/$fd" >>"$SSH_KEYGEN_MARKER"
+done
+private=''
+while (($#)); do
+    case $1 in
+        -f) private=$2; shift 2 ;;
+        *) shift ;;
+    esac
+done
+[[ -n $private ]]
+if [[ ${SSH_KEYGEN_MODE:-success} == fail ]]; then
+    printf 'partial private\n' >"$private"
+    printf 'partial public\n' >"$private.pub"
+    exit 1
+fi
+printf 'generated private\n' >"$private"
+printf 'ssh-ed25519 AAAAGENERATED mock@example\n' >"$private.pub"
+EOF
+chmod +x "$fake_bin/ssh-keygen"
+
+ssh_keygen_case() {
+    local mode=$1 home='' output=''
+    home="$ssh_test_home/keygen-$mode"
+    mkdir -p "$home/.ssh"
+    printf 'original private\n' >"$home/.ssh/id_ed25519"
+    printf 'ssh-ed25519 AAAAORIGINAL mock@example\n' >"$home/.ssh/id_ed25519.pub"
+    chmod 700 "$home/.ssh"
+    chmod 600 "$home/.ssh/id_ed25519"
+    chmod 644 "$home/.ssh/id_ed25519.pub"
+    : >"$keygen_marker"
+
+    output=$(HOME="$home" PATH="$fake_bin:$PATH" SSH_AUTH_SOCK=mock \
+        SSH_KEYGEN_MODE="$mode" SSH_KEYGEN_MARKER="$keygen_marker" TTY_FILE="$tty_file" \
+        bash -c '
+            set -Eeuo pipefail
+            source lib/log
+            source lib/ask
+            source lib/env
+            source lib/run
+            source lib/ssh
+            DRY_RUN=0
+            VERBOSE=0
+            LOG_FILE=/dev/null
+            FAILURES=()
+            GIT_EMAIL=mock@example
+            ask_reconfigure() { return 0; }
+            _ssh_tty_path() { printf "%s" "$TTY_FILE"; }
+            if [[ $1 == fail ]]; then
+                if configure_ssh; then exit 1; fi
+            else
+                configure_ssh
+            fi
+        ' _ "$mode" 2>&1)
+
+    if [[ $mode == fail ]]; then
+        [[ $(<"$home/.ssh/id_ed25519") == 'original private' ]]
+        [[ $(<"$home/.ssh/id_ed25519.pub") == 'ssh-ed25519 AAAAORIGINAL mock@example' ]]
+        [[ $output != *ssh_askpass* ]]
+    else
+        [[ $(<"$home/.ssh/id_ed25519") == 'generated private' ]]
+        [[ $(<"$home/.ssh/id_ed25519.pub") == 'ssh-ed25519 AAAAGENERATED mock@example' ]]
+        grep -Fqx "askpass= require=never" "$keygen_marker"
+        grep -Fqx "fd0=$tty_file" "$keygen_marker"
+        grep -Fqx "fd1=$tty_file" "$keygen_marker"
+        grep -Fqx "fd2=$tty_file" "$keygen_marker"
+        [[ $output != *ssh_askpass* ]]
+    fi
+}
+
+if ssh_keygen_case success >/dev/null 2>&1 \
+    && ssh_keygen_case fail >/dev/null 2>&1; then
+    ok 'ssh-keygen usa terminal dedicado e restaura chave após falha parcial'
+else
+    error 'ssh-keygen não isolou o terminal ou não restaurou a chave anterior'
+    ((failures += 1))
+fi
+
+no_tty_home="$ssh_test_home/keygen-no-tty"
+no_tty_marker="$ssh_test_home/keygen-no-tty.marker"
+mkdir -p "$no_tty_home/.ssh"
+printf 'original private\n' >"$no_tty_home/.ssh/id_ed25519"
+printf 'ssh-ed25519 AAAAORIGINAL mock@example\n' >"$no_tty_home/.ssh/id_ed25519.pub"
+chmod 700 "$no_tty_home/.ssh"
+chmod 600 "$no_tty_home/.ssh/id_ed25519"
+chmod 644 "$no_tty_home/.ssh/id_ed25519.pub"
+: >"$no_tty_marker"
+if no_tty_output=$(HOME="$no_tty_home" PATH="$fake_bin:$PATH" SSH_AUTH_SOCK=mock \
+    SSH_KEYGEN_MARKER="$no_tty_marker" TTY_FILE="$ssh_test_home/tty-missing" \
+    bash -c '
+        set -Eeuo pipefail
+        source lib/log
+        source lib/ask
+        source lib/env
+        source lib/run
+        source lib/ssh
+        DRY_RUN=0
+        VERBOSE=0
+        LOG_FILE=/dev/null
+        FAILURES=()
+        GIT_EMAIL=mock@example
+        ask_reconfigure() { return 0; }
+        _ssh_tty_path() { printf "%s" "$TTY_FILE"; }
+        if configure_ssh; then exit 1; fi
+        [[ $(<"$HOME/.ssh/id_ed25519") == "original private" ]]
+        [[ $(<"$HOME/.ssh/id_ed25519.pub") == "ssh-ed25519 AAAAORIGINAL mock@example" ]]
+        ! compgen -G "$HOME/.ssh/id_ed25519.bak.*" >/dev/null
+    ' 2>&1) \
+    && [[ ! -s $no_tty_marker ]] \
+    && grep -Fq 'não há terminal disponível para gerar chave SSH interativa' <<<"$no_tty_output"; then
+    ok 'sem TTY a geração SSH falha sem mover ou criar chave parcial'
+else
+    error 'sem TTY a geração SSH alterou a chave existente ou tentou ssh-keygen'
+    ((failures += 1))
+fi
+
+# A expressão precisa permanecer literal para validar os redirecionamentos.
+# shellcheck disable=SC2016
+if grep -Fq 'SSH_ASKPASS_REQUIRE=never' lib/ssh \
+    && grep -Fq '<"$tty" >"$tty" 2>"$tty"' lib/ssh; then
+    ok 'geração SSH redireciona descritores para o terminal e neutraliza askpass'
+else
+    error 'geração SSH não isola ssh-keygen do stdin do pipe'
+    ((failures += 1))
+fi
+
 if HOME="$ssh_test_home" bash -c '
     set -Eeuo pipefail
     source lib/log

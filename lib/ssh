@@ -95,6 +95,34 @@ _ssh_permissions_secure() {
     [[ $ssh_mode == 700 && $private_mode == 600 && $public_mode == 644 ]]
 }
 
+_ssh_tty_path() {
+    printf '%s' /dev/tty
+}
+
+_ssh_tty_available() {
+    local tty=''
+    tty=$(_ssh_tty_path)
+    [[ -n $tty && -r $tty && -w $tty ]]
+}
+
+_generate_ssh_key() {
+    local private_key=$1 email=$2 tty=''
+    tty=$(_ssh_tty_path)
+    if [[ -z $tty || ! -r $tty || ! -w $tty ]]; then
+        error 'não há terminal disponível para gerar chave SSH interativa'
+        info 'baixe o script e execute localmente:'
+        info 'curl -fsSL https://shelies.org -o install.sh'
+        info 'bash install.sh'
+        return 1
+    fi
+
+    # /dev/tty é o terminal interativo, não um arquivo comum.
+    # shellcheck disable=SC2094
+    SSH_ASKPASS='' SSH_ASKPASS_REQUIRE=never \
+        ssh-keygen -q -t ed25519 -C "$email" -f "$private_key" \
+        <"$tty" >"$tty" 2>"$tty"
+}
+
 _start_ssh_agent() {
     local agent_output sock pid
     [[ -n ${SSH_AUTH_SOCK:-} ]] && return 0
@@ -155,6 +183,13 @@ configure_ssh() {
     SSH_PRIVATE_KEY=$normalized
     SSH_PUBLIC_KEY="$SSH_PRIVATE_KEY.pub"
     (( VERBOSE )) && info "caminho SSH final: $SSH_PRIVATE_KEY"
+    if (( SSH_KEY_CREATED && ! DRY_RUN )) && ! _ssh_tty_available; then
+        error 'não há terminal disponível para gerar chave SSH interativa'
+        info 'baixe o script e execute localmente:'
+        info 'curl -fsSL https://shelies.org -o install.sh'
+        info 'bash install.sh'
+        return 1
+    fi
     if (( regenerate )); then
         _backup_ssh_key "$SSH_PRIVATE_KEY" "$SSH_PUBLIC_KEY" || return 1
         SSH_KEY_CREATED=1
@@ -171,7 +206,7 @@ configure_ssh() {
             mkdir -p "$HOME/.ssh"
             chmod 700 "$HOME/.ssh"
             info 'ssh-keygen solicitará uma passphrase; ela não será registrada'
-            if ssh-keygen -t ed25519 -C "$email" -f "$SSH_PRIVATE_KEY"; then
+            if _generate_ssh_key "$SSH_PRIVATE_KEY" "$email"; then
                 _set_ssh_permissions "$SSH_PRIVATE_KEY" "$SSH_PUBLIC_KEY"
                 ok "chave SSH local pronta: $SSH_PUBLIC_KEY"
             else
