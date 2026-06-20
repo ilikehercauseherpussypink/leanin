@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* Final bug hunt and output cleanup.
+* Reordered installer steps for clearer source, SSH and GitHub flow.
+* Removed the empty final integration stage.
+* Expanded regression coverage for output, prompts and edge cases.
 * Fixed GitHub SSH prompt ordering so key title is only requested when a key will actually be registered.
 * Fixed confirmation prompts when running through `curl | bash` by reading from `/dev/tty`.
 * Added `--doctor` for quick local diagnostics.

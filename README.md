@@ -95,7 +95,7 @@ Quando uma configuração existente precisaria ser refeita ou substituída, o ar
 * Usa fallback manual quando `gh` não está disponível.
 * Mantém logs em `~/.local/state/archboot/logs`.
 
-O instalador executa 13 etapas. Quando recebido sozinho pelo domínio curto, o `install.sh` baixa o projeto completo pelo tarball da branch configurada e continua a execução a partir de um diretório temporário seguro.
+O instalador organiza as etapas de acordo com as fontes e integrações habilitadas; com os defaults atuais, são 12 etapas. Quando recebido sozinho pelo domínio curto, o `install.sh` baixa o projeto completo pelo tarball da branch configurada e continua a execução a partir de um diretório temporário seguro.
 
 Overrides remotos aceitam somente repositórios GitHub HTTPS no formato `https://github.com/OWNER/REPO` e nomes de branch sem espaços, traversal ou metacaracteres de shell.
 

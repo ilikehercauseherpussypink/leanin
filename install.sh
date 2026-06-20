@@ -8,8 +8,11 @@ ARCHBOOT_BRANCH=${ARCHBOOT_BRANCH-main}
 initial_banner() {
     local plan_mode=${1:-0}
     printf '\narchboot %s\n' "$ARCHBOOT_VERSION"
-    (( plan_mode )) || printf 'Bootstrap modular para Arch Linux\n'
-    printf '\n'
+    if (( plan_mode )); then
+        printf '\n'
+    else
+        printf 'Bootstrap modular para Arch Linux\n'
+    fi
 }
 
 EARLY_PLAN=0
@@ -226,11 +229,13 @@ SKIP_CODEX=0
 SKIP_GIT=0
 SKIP_SSH=0
 SKIP_GITHUB=0
-TOTAL_STEPS=13
+TOTAL_STEPS=0
+STEP_CURRENT=0
 PACMAN_BLOCKED=0
 LOG_FILE=/dev/null
 declare -ag FAILURES=()
 declare -ag DISABLED_FEATURES=()
+PLAN_LOADED=0
 
 usage() {
     cat <<'EOF'
@@ -306,10 +311,7 @@ plan_status() {
 
 show_plan_only() {
     local key item
-    read_pacman
-    read_flatpak
-    read_aur
-    read_services
+    load_plan
 
     printf 'plan\n\n'
     if (( SKIP_PACMAN )); then
@@ -363,6 +365,63 @@ show_plan_only() {
         for item in "${SYSTEM_SERVICES[@]}"; do printf 'system service: %s\n' "$item"; done
         for item in "${USER_SERVICES[@]}"; do printf 'user service: %s\n' "$item"; done
     fi
+}
+
+load_plan() {
+    (( PLAN_LOADED )) && return 0
+    read_pacman
+    read_flatpak
+    read_aur
+    read_services
+    PLAN_LOADED=1
+}
+
+calculate_total_steps() {
+    TOTAL_STEPS=3 # sistema, plano e resumo
+    if (( ! SKIP_PACMAN && ${#PACMAN_CORE[@]} > 0 )); then
+        ((TOTAL_STEPS += 1))
+    fi
+    if (( ! SKIP_FLATPAK )); then
+        ((TOTAL_STEPS += 1))
+    fi
+    if (( ! SKIP_PACMAN && ${#PACMAN_REST[@]} > 0 )); then
+        ((TOTAL_STEPS += 1))
+    fi
+    if (( ! SKIP_AUR && ${#AUR_APPS[@]} > 0 )); then
+        ((TOTAL_STEPS += 1))
+    fi
+    if (( ! SKIP_SERVICES && (${#SYSTEM_SERVICES[@]} + ${#USER_SERVICES[@]} > 0) )); then
+        ((TOTAL_STEPS += 1))
+    fi
+    if (( ! SKIP_CODEX )); then
+        ((TOTAL_STEPS += 1))
+    fi
+    if (( ! SKIP_GIT )); then
+        ((TOTAL_STEPS += 1))
+    fi
+    if (( ! SKIP_SSH )); then
+        ((TOTAL_STEPS += 1))
+    fi
+    if (( ! SKIP_GITHUB )); then
+        ((TOTAL_STEPS += 1))
+    fi
+}
+
+next_step() {
+    ((STEP_CURRENT += 1))
+    step "$STEP_CURRENT" "$TOTAL_STEPS" "$1"
+}
+
+print_disabled_plan() {
+    (( SKIP_PACMAN )) && skip 'pacman desativado por flag'
+    (( SKIP_FLATPAK )) && skip 'Flatpak desativado por flag'
+    (( SKIP_AUR )) && skip 'AUR desativado por flag'
+    (( SKIP_SERVICES )) && skip 'serviços desativados por flag'
+    (( SKIP_CODEX )) && skip 'Codex desativado por flag'
+    (( SKIP_GIT )) && skip 'Git desativado por flag'
+    (( SKIP_SSH )) && skip 'SSH desativado por flag'
+    (( SKIP_GITHUB )) && skip 'GitHub desativado por flag'
+    return 0
 }
 
 summary_line() {
@@ -435,20 +494,25 @@ show_summary() {
         warn "concluído com $failure_count falha(s)"
     fi
 
+    printf '\n> Pacotes:\n'
     if (( DRY_RUN )); then
         summary_counts pacman "${#PACMAN_PLANNED[@]}" planejados "${#PACMAN_SKIPPED[@]}" 'pacman:'
         summary_counts flatpak "${#FLATPAK_PLANNED[@]}" planejados "${#FLATPAK_SKIPPED[@]}" 'flatpak:'
         summary_counts aur "${#AUR_PLANNED[@]}" planejados "${#AUR_SKIPPED[@]}" 'aur:'
-        summary_counts serviços "${#SERVICES_PLANNED[@]}" planejados \
-            "$((${#SERVICES_ALREADY[@]} + ${#SERVICES_SKIPPED[@]}))" 'service:'
     else
         summary_counts pacman "${#PACMAN_INSTALLED[@]}" instalados "${#PACMAN_SKIPPED[@]}" 'pacman:'
         summary_counts flatpak "${#FLATPAK_INSTALLED[@]}" instalados "${#FLATPAK_SKIPPED[@]}" 'flatpak:'
         summary_counts aur "${#AUR_INSTALLED[@]}" instalados "${#AUR_SKIPPED[@]}" 'aur:'
+    fi
+
+    printf '\n> Configuração:\n'
+    if (( DRY_RUN )); then
+        summary_counts serviços "${#SERVICES_PLANNED[@]}" planejados \
+            "$((${#SERVICES_ALREADY[@]} + ${#SERVICES_SKIPPED[@]}))" 'service:'
+    else
         summary_counts serviços "$((${#SERVICES_ACTIVATED[@]} + ${#SERVICES_ALREADY[@]}))" ativos \
             "${#SERVICES_SKIPPED[@]}" 'service:'
     fi
-
     if (( SKIP_GITHUB )); then
         info 'GitHub SSH: desativado por flag'
     else
@@ -466,9 +530,6 @@ show_summary() {
 
     if (( failure_count > 0 )); then
         summary_line 'falhas' "${FAILURES[@]}"
-        [[ $LOG_FILE != /dev/null ]] && info "veja log: $LOG_FILE"
-    elif [[ $LOG_FILE != /dev/null ]]; then
-        info "log: $LOG_FILE"
     fi
 
     if (( VERBOSE )); then
@@ -492,6 +553,15 @@ show_summary() {
         summary_line 'desativados por flag' "${DISABLED_FEATURES[@]}"
     fi
 
+    if [[ $LOG_FILE != /dev/null ]]; then
+        printf '\n> Logs:\n'
+        if (( failure_count > 0 )); then
+            info "veja log: $LOG_FILE"
+        else
+            info "$LOG_FILE"
+        fi
+    fi
+
     if [[ ${GITHUB_NEW_KEY_STATUS:-} == 'fallback manual' ]]; then
         info "próximo passo: cadastre a chave em $GITHUB_KEYS_URL"
     fi
@@ -504,6 +574,8 @@ show_summary() {
 }
 
 main() {
+    local ssh_ready=0
+
     parse_args "$@"
     collect_disabled_features
 
@@ -522,7 +594,10 @@ main() {
         return 0
     fi
 
-    step 1 "$TOTAL_STEPS" 'validando sistema'
+    load_plan
+    calculate_total_steps
+
+    next_step 'validando sistema'
     if [[ $CI_MODE == 1 ]]; then
         LOG_FILE=/dev/null
         PACMAN_BLOCKED=0
@@ -536,79 +611,58 @@ main() {
         ok 'sudo disponível'
         net
         ok 'internet disponível'
+        lock
         state
         ok "log criado: $LOG_FILE"
-        lock
     fi
 
-    step 2 "$TOTAL_STEPS" 'lendo plano'
-    read_pacman
-    read_flatpak
-    read_aur
-    read_services
+    next_step 'lendo plano'
     if ! validate_apps; then
         warn 'há entradas com formato improvável; a instalação continuará'
     fi
     print_plan
     print_services_plan
+    print_disabled_plan
 
-    step 3 "$TOTAL_STEPS" 'instalando pacotes oficiais essenciais'
-    if (( SKIP_PACMAN )); then
-        skip 'pacman desativado por flag'
-    else
+    if (( ! SKIP_PACMAN && ${#PACMAN_CORE[@]} > 0 )); then
+        next_step 'pacman essenciais'
         pacman_install "${PACMAN_CORE[@]}"
     fi
 
-    step 4 "$TOTAL_STEPS" 'configurando Flatpak'
-    if (( SKIP_FLATPAK )); then
-        skip 'Flatpak desativado por flag'
-    else
+    if (( ! SKIP_FLATPAK )); then
+        next_step 'Flatpak'
         flatpak_setup || true
-    fi
-
-    step 5 "$TOTAL_STEPS" 'instalando pacotes oficiais restantes'
-    if (( SKIP_PACMAN )); then
-        skip 'pacman desativado por flag'
-    else
-        pacman_install "${PACMAN_REST[@]}"
-    fi
-
-    step 6 "$TOTAL_STEPS" 'instalando Flatpaks'
-    if (( SKIP_FLATPAK )); then
-        skip 'Flatpak desativado por flag'
-    else
         flatpak_install "${FLATPAK_APPS[@]}"
     fi
 
-    step 7 "$TOTAL_STEPS" 'instalando pacotes AUR'
-    if (( SKIP_AUR )); then
-        skip 'AUR desativado por flag'
-    elif ((${#AUR_APPS[@]} == 0)); then
-        skip 'nenhum pacote AUR configurado'
-    elif (( PACMAN_BLOCKED )); then
-        install "${AUR_APPS[@]}"
-    elif ! detect; then
-        if yesno 'Nenhum AUR helper encontrado. Instalar paru?' n; then
-            bootstrap_paru || true
-        else
-            skip 'instalação de AUR helper recusada'
-        fi
-        install "${AUR_APPS[@]}"
-    else
-        install "${AUR_APPS[@]}"
+    if (( ! SKIP_PACMAN && ${#PACMAN_REST[@]} > 0 )); then
+        next_step 'pacman restantes'
+        pacman_install "${PACMAN_REST[@]}"
     fi
 
-    step 8 "$TOTAL_STEPS" 'ativando serviços'
-    if (( SKIP_SERVICES )); then
-        skip 'serviços desativados por flag'
-    else
+    if (( ! SKIP_AUR && ${#AUR_APPS[@]} > 0 )); then
+        next_step 'AUR'
+        if (( PACMAN_BLOCKED )); then
+            install "${AUR_APPS[@]}"
+        elif ! detect; then
+            if yesno 'Nenhum AUR helper encontrado. Instalar paru?' n; then
+                bootstrap_paru || true
+            else
+                skip 'instalação de AUR helper recusada'
+            fi
+            install "${AUR_APPS[@]}"
+        else
+            install "${AUR_APPS[@]}"
+        fi
+    fi
+
+    if (( ! SKIP_SERVICES && (${#SYSTEM_SERVICES[@]} + ${#USER_SERVICES[@]} > 0) )); then
+        next_step 'serviços'
         activate_services
     fi
 
-    step 9 "$TOTAL_STEPS" 'configurando Codex CLI'
-    if (( SKIP_CODEX )); then
-        skip 'Codex desativado por flag'
-    else
+    if (( ! SKIP_CODEX )); then
+        next_step 'Codex'
         if configure_prefix; then
             install_codex || true
             configure_path
@@ -617,33 +671,30 @@ main() {
         fi
     fi
 
-    step 10 "$TOTAL_STEPS" 'configurando Git'
-    if (( SKIP_GIT )); then
-        skip 'Git desativado por flag'
-    else
+    if (( ! SKIP_GIT )); then
+        next_step 'Git'
         configure_git || true
     fi
 
-    step 11 "$TOTAL_STEPS" 'ssh/github'
-    if (( SKIP_SSH )); then
-        skip 'SSH desativado por flag'
-    elif configure_ssh; then
-        if (( SKIP_GITHUB )); then
-            skip 'GitHub desativado por flag'
-        else
-            github_manage_ssh_key "$SSH_PUBLIC_KEY"
-            test_github_ssh || true
+    if (( ! SKIP_SSH )); then
+        next_step 'SSH'
+        if configure_ssh; then
+            ssh_ready=1
         fi
     fi
 
-    step 12 "$TOTAL_STEPS" 'finalizando integrações'
-    if (( SKIP_GITHUB )); then
-        skip 'GitHub desativado por flag'
-    else
-        configure_gh || true
+    if (( ! SKIP_GITHUB )); then
+        next_step 'GitHub'
+        if (( ssh_ready )); then
+            github_manage_ssh_key "$SSH_PUBLIC_KEY"
+            test_github_ssh || true
+        else
+            skip 'GitHub SSH pulado: chave local indisponível'
+            configure_gh || true
+        fi
     fi
 
-    step 13 "$TOTAL_STEPS" 'resumo'
+    next_step 'resumo'
     show_summary
     ((${#FAILURES[@]} == 0))
 }

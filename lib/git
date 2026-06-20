@@ -21,18 +21,18 @@ configure_git() {
         else
             prompt name 'git user.name' "$current_name"
             prompt email 'git user.email' "$current_email"
-            _configure_git_identity "$name" "$email"
+            _configure_git_identity "$name" "$email" || true
         fi
     else
         prompt name 'git user.name' "$current_name"
         prompt email 'git user.email' "$current_email"
-        _configure_git_identity "$name" "$email"
+        _configure_git_identity "$name" "$email" || true
     fi
 
-    _configure_git_value init.defaultBranch main 'branch padrão Git'
-    _configure_git_value pull.rebase false 'estratégia pull Git'
+    _configure_git_value init.defaultBranch main 'branch padrão Git' || true
+    _configure_git_value pull.rebase false 'estratégia pull Git' || true
     if command_exists code; then
-        _configure_git_value core.editor 'code --wait' 'editor Git'
+        _configure_git_value core.editor 'code --wait' 'editor Git' || true
     fi
 
     GIT_NAME=$(git config --global --get user.name 2>/dev/null || true)
@@ -53,6 +53,11 @@ _configure_git_identity() {
     elif run_cmd 'git user.name' git config --global user.name "$name" \
         && run_cmd 'git user.email' git config --global user.email "$email"; then
         ok 'identidade Git configurada'
+    else
+        error 'falha ao configurar identidade Git'
+        info "log: $LOG_FILE"
+        FAILURES+=('git:identity')
+        return 1
     fi
 }
 
@@ -68,5 +73,10 @@ _configure_git_value() {
         skip "git $key mantido"
         return 0
     fi
-    run_cmd "$label" git config --global "$key" "$desired" || true
+    if ! run_cmd "$label" git config --global "$key" "$desired"; then
+        error "falha ao configurar git $key"
+        info "log: $LOG_FILE"
+        FAILURES+=("git:$key")
+        return 1
+    fi
 }

@@ -77,14 +77,22 @@ _backup_ssh_key() {
 
 _restore_ssh_backup() {
     local private_key=$1 public_key=$2 restored=0
-    if [[ -n $SSH_BACKUP_PRIVATE && -e $SSH_BACKUP_PRIVATE && ! -e $private_key ]]; then
-        mv -- "$SSH_BACKUP_PRIVATE" "$private_key" && restored=1
+    if [[ -n $SSH_BACKUP_PRIVATE && -e $SSH_BACKUP_PRIVATE ]]; then
+        mv -f -- "$SSH_BACKUP_PRIVATE" "$private_key" && restored=1
     fi
-    if [[ -n $SSH_BACKUP_PUBLIC && -e $SSH_BACKUP_PUBLIC && ! -e $public_key ]]; then
-        mv -- "$SSH_BACKUP_PUBLIC" "$public_key" && restored=1
+    if [[ -n $SSH_BACKUP_PUBLIC && -e $SSH_BACKUP_PUBLIC ]]; then
+        mv -f -- "$SSH_BACKUP_PUBLIC" "$public_key" && restored=1
     fi
     (( restored )) && warn 'chave SSH anterior restaurada após falha na geração'
     return 0
+}
+
+_ssh_permissions_secure() {
+    local private_key=$1 public_key=$2 ssh_mode='' private_mode='' public_mode=''
+    ssh_mode=$(stat -c '%a' "$HOME/.ssh" 2>/dev/null || true)
+    private_mode=$(stat -c '%a' "$private_key" 2>/dev/null || true)
+    public_mode=$(stat -c '%a' "$public_key" 2>/dev/null || true)
+    [[ $ssh_mode == 700 && $private_mode == 600 && $public_mode == 644 ]]
 }
 
 _start_ssh_agent() {
@@ -175,6 +183,14 @@ configure_ssh() {
     elif [[ ! -f $SSH_PRIVATE_KEY || ! -f $SSH_PUBLIC_KEY ]]; then
         warn "chave pública ausente: $SSH_PUBLIC_KEY"
         return 1
+    fi
+
+    if (( ! SSH_KEY_CREATED )) && ! _ssh_permissions_secure "$SSH_PRIVATE_KEY" "$SSH_PUBLIC_KEY"; then
+        info 'ajustando permissões da chave SSH existente'
+        if ! _set_ssh_permissions "$SSH_PRIVATE_KEY" "$SSH_PUBLIC_KEY"; then
+            warn 'não foi possível ajustar permissões da chave SSH'
+            return 1
+        fi
     fi
 
     if (( ! DRY_RUN )); then

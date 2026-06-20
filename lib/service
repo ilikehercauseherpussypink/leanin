@@ -138,6 +138,16 @@ service_enable() {
 
 activate_services() {
     local service
+    if ! command_exists systemctl; then
+        warn 'systemctl indisponível; serviços serão pulados'
+        for service in "${SYSTEM_SERVICES[@]}"; do
+            SERVICES_SKIPPED+=("system:$service")
+        done
+        for service in "${USER_SERVICES[@]}"; do
+            SERVICES_SKIPPED+=("user:$service")
+        done
+        return 0
+    fi
     for service in "${SYSTEM_SERVICES[@]}"; do
         service_enable system "$service" || true
     done

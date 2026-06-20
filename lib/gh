@@ -298,15 +298,25 @@ github_manage_ssh_key() {
         return 0
     fi
 
-    if github_collect_old_ssh_keys "$public_key"; then
-        github_delete_ssh_keys
-    else
-        warn 'não foi possível comparar a chave local com as chaves do GitHub'
-        # Consumida pelo resumo do orquestrador.
-        # shellcheck disable=SC2034
-        GITHUB_OLD_KEYS_STATUS='não verificadas'
-    fi
     github_register_ssh_key "$public_key"
+    case $GITHUB_NEW_KEY_STATUS in
+        'já existia'|'cadastrada automaticamente via gh')
+            if github_collect_old_ssh_keys "$public_key"; then
+                github_delete_ssh_keys
+            else
+                warn 'não foi possível comparar a chave local com as chaves do GitHub'
+                # Consumida pelo resumo do orquestrador.
+                # shellcheck disable=SC2034
+                GITHUB_OLD_KEYS_STATUS='não verificadas'
+            fi
+            ;;
+        *)
+            # Não remova o acesso existente se a chave atual não foi registrada.
+            # Consumida pelo resumo do orquestrador.
+            # shellcheck disable=SC2034
+            GITHUB_OLD_KEYS_STATUS='mantidas'
+            ;;
+    esac
 }
 
 configure_gh() {

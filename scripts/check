@@ -872,6 +872,46 @@ else
     controls_fail=1
 fi
 
+layout_args=(--dry-run --no-packages --no-services --no-codex --no-git --no-ssh --no-github)
+if layout_output=$(ARCHBOOT_CI=1 bash install.sh "${layout_args[@]}" 2>&1) \
+    && grep -Fq '> Etapa 1/3: validando sistema' <<<"$layout_output" \
+    && grep -Fq '> Etapa 2/3: lendo plano' <<<"$layout_output" \
+    && grep -Fq '> Etapa 3/3: resumo' <<<"$layout_output" \
+    && grep -Fq '> Pacotes:' <<<"$layout_output" \
+    && grep -Fq '> Configuração:' <<<"$layout_output" \
+    && ! grep -Fq 'finalizando integrações' <<<"$layout_output" \
+    && ! grep -Fq '> Etapa 4/' <<<"$layout_output"; then
+    ok 'etapas ativas usam total dinâmico e resumo separado'
+else
+    error 'ordem ou total das etapas ativas está inconsistente'
+    controls_fail=1
+fi
+
+if default_dry_output=$(ARCHBOOT_CI=1 bash install.sh --dry-run --no-ssh --no-github 2>&1) \
+    && grep -Fq '> Etapa 10/10: resumo' <<<"$default_dry_output" \
+    && grep -Fq '> [ok] concluído' <<<"$default_dry_output"; then
+    ok 'dry-run sem flags de fonte conclui todas as etapas ativas'
+else
+    error 'dry-run sem flags de fonte encerrou antes do resumo'
+    controls_fail=1
+fi
+
+if ! grep -Fq 'next_step' install.sh \
+    || grep -Fq "next_step 'finalizando integrações'" install.sh; then
+    error 'fluxo ainda contém etapa final vazia ou sem contador centralizado'
+    controls_fail=1
+else
+    ok 'fluxo não contém etapa final vazia'
+fi
+
+if plan_log_output=$(ARCHBOOT_CI=1 bash install.sh --plan 2>&1) \
+    && ! grep -Fq 'log criado:' <<<"$plan_log_output"; then
+    ok '--plan não cria nem anuncia log de execução'
+else
+    error '--plan criou ou anunciou log de execução'
+    controls_fail=1
+fi
+
 yes_args=(--dry-run --yes --no-packages --no-services --no-ssh --no-github --no-codex --no-git)
 if yes_output=$(ARCHBOOT_CI=1 bash install.sh "${yes_args[@]}" 2>&1) \
     && ! grep -Fq '[ask]' <<<"$yes_output" \
@@ -1122,6 +1162,47 @@ else
     controls_fail=1
 fi
 
+if bash -c '
+    set -Eeuo pipefail
+    source lib/log
+    source lib/ask
+    source lib/git
+    DRY_RUN=0
+    LOG_FILE=/dev/null
+    FAILURES=()
+    git() { return 1; }
+    run_cmd() { return 1; }
+    if _configure_git_identity name user@example.test; then exit 1; fi
+    [[ ${FAILURES[*]} == *git:identity* ]]
+    if _configure_git_value init.defaultBranch main "branch padrão Git"; then exit 1; fi
+    [[ ${FAILURES[*]} == *git:init.defaultBranch* ]]
+' >/dev/null 2>&1; then
+    ok 'falhas de configuração Git são registradas'
+else
+    error 'falhas de configuração Git foram tratadas como sucesso'
+    controls_fail=1
+fi
+
+if bash -c '
+    set -Eeuo pipefail
+    source lib/log
+    source lib/ask
+    source lib/service
+    LOG_FILE=/dev/null
+    FAILURES=()
+    SYSTEM_SERVICES=(mock.service)
+    USER_SERVICES=(mock-user.service)
+    command_exists() { [[ $1 != systemctl ]]; }
+    activate_services
+    ((${#SERVICES_SKIPPED[@]} == 2))
+    ((${#FAILURES[@]} == 0))
+' >/dev/null 2>&1; then
+    ok 'systemctl ausente pula serviços sem sucesso falso'
+else
+    error 'systemctl ausente não foi tratado de forma segura'
+    controls_fail=1
+fi
+
 if (( controls_fail )); then
     ((failures += 1))
 fi
@@ -1212,6 +1293,8 @@ if HOME="$ssh_test_home" bash -c '
     printf private >"$private"
     printf public >"$public"
     _backup_ssh_key "$private" "$public"
+    printf partial-private >"$private"
+    printf partial-public >"$public"
     _restore_ssh_backup "$private" "$public"
     [[ $(<"$private") == private ]]
     [[ $(<"$public") == public ]]
