@@ -46,7 +46,7 @@ required=(
     apps/pacman/base apps/pacman/dev apps/pacman/browsers apps/pacman/audio
     apps/pacman/privacy apps/pacman/system
     apps/flatpak/chat apps/flatpak/media apps/flatpak/mail
-    apps/flatpak/privacy apps/flatpak/tools
+    apps/flatpak/privacy apps/flatpak/tools apps/flatpak/games
     apps/aur/browsers apps/aur/privacy apps/aur/media apps/aur/tools
     services/system services/user
 )
@@ -116,6 +116,13 @@ for source in pacman aur; do
         done < <(app_lines "$file")
     done
 done
+if grep -Fxq 'org.vinegarhq.Sober' apps/flatpak/games \
+    && ! grep -RFx 'org.vinegarhq.Sober' apps/pacman apps/aur >/dev/null 2>&1; then
+    ok 'Sober está somente na categoria Flatpak games'
+else
+    error 'Sober precisa estar apenas em apps/flatpak/games'
+    ((failures += 1))
+fi
 if bash -c '
     set -Eeuo pipefail
     source lib/log
@@ -128,7 +135,7 @@ if bash -c '
     read_aur
     read_pacman
     [[ ${#PACMAN_APPS[@]} == 11 ]]
-    [[ ${#FLATPAK_APPS[@]} == 5 ]]
+    [[ ${#FLATPAK_APPS[@]} == 6 ]]
     [[ ${#AUR_APPS[@]} == 3 ]]
 ' _ "$ROOT" >/dev/null 2>&1; then
     ok 'leitura de apps é idempotente por fonte'
@@ -765,7 +772,7 @@ fi
 if plan_output=$(bash install.sh --plan 2>&1) \
     && grep -Fq 'archboot 0.1.1' <<<"$plan_output" \
     && grep -Fq 'pacman: 11 pacotes' <<<"$plan_output" \
-    && grep -Fq 'flatpak: 5 apps' <<<"$plan_output" \
+    && grep -Fq 'flatpak: 6 apps' <<<"$plan_output" \
     && grep -Fq 'aur: 3 pacotes' <<<"$plan_output" \
     && grep -Fq 'system services: 1 serviço' <<<"$plan_output" \
     && grep -Fq 'user services: 0 serviços' <<<"$plan_output" \
@@ -784,11 +791,38 @@ fi
 if verbose_plan_output=$(bash install.sh --plan --verbose 2>&1) \
     && grep -Fq 'categories' <<<"$verbose_plan_output" \
     && grep -Fq 'apps' <<<"$verbose_plan_output" \
+    && grep -Fq 'flatpak/games: 1' <<<"$verbose_plan_output" \
+    && grep -Fq 'flatpak: org.vinegarhq.Sober' <<<"$verbose_plan_output" \
     && ! grep -Fq '[ask]' <<<"$verbose_plan_output"; then
     ok '--plan --verbose permanece somente leitura'
 else
     error '--plan --verbose falhou ou pediu input'
     controls_fail=1
+fi
+
+if no_flatpak_output=$(ARCHBOOT_CI=1 bash install.sh --dry-run --no-flatpak --no-ssh --no-github 2>&1) \
+    && grep -Fq '[skip] Flatpak desativado por flag' <<<"$no_flatpak_output" \
+    && ! grep -Fq 'org.vinegarhq.Sober' <<<"$no_flatpak_output"; then
+    ok '--no-flatpak não processa Sober'
+else
+    error '--no-flatpak não pulou Sober corretamente'
+    controls_fail=1
+fi
+
+if no_packages_output=$(ARCHBOOT_CI=1 bash install.sh --dry-run --no-packages --no-ssh --no-github 2>&1) \
+    && grep -Fq '[skip] Flatpak desativado por flag' <<<"$no_packages_output" \
+    && ! grep -Fq 'org.vinegarhq.Sober' <<<"$no_packages_output"; then
+    ok '--no-packages não processa Sober'
+else
+    error '--no-packages não pulou Sober corretamente'
+    controls_fail=1
+fi
+
+if grep -RE '(yesno|ask_[a-z_]+).*org\.vinegarhq\.Sober' install.sh lib >/dev/null 2>&1; then
+    error 'Sober introduziu prompt por pacote'
+    controls_fail=1
+else
+    ok 'Sober não introduz prompt por pacote'
 fi
 
 if [[ -r /etc/os-release ]] && grep -Eq '^ID=arch$|^ID_LIKE=.*arch' /etc/os-release; then

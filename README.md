@@ -117,6 +117,7 @@ apps/
 │   ├── media
 │   ├── mail
 │   ├── privacy
+│   ├── games
 │   └── tools
 └── aur/
     ├── browsers
@@ -153,6 +154,7 @@ Defaults Flatpak:
 * `com.tutanota.Tutanota`
 * `com.bitwarden.desktop`
 * `net.mullvad.MullvadBrowser`
+* `org.vinegarhq.Sober`
 
 Defaults AUR:
 
@@ -242,6 +244,12 @@ Adicionar um Flatpak:
 
 ```bash
 echo org.example.App >> apps/flatpak/tools
+```
+
+Executar o launcher Roblox Sober:
+
+```bash
+flatpak run org.vinegarhq.Sober
 ```
 
 Adicionar um pacote AUR:

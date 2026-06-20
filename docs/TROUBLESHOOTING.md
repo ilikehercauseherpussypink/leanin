@@ -60,6 +60,19 @@ flatpak remote-ls flathub | head
 
 O output completo da configuração ou instalação com falha fica no log da execução.
 
+## Sober / Roblox
+
+Comandos úteis para o launcher Roblox Sober:
+
+```bash
+flatpak run org.vinegarhq.Sober
+flatpak info org.vinegarhq.Sober
+flatpak update org.vinegarhq.Sober
+flatpak remotes
+```
+
+Se ele não abrir, execute `flatpak run org.vinegarhq.Sober` no terminal para ver os logs. Roblox ou o próprio Sober podem parar de funcionar após atualizações externas.
+
 ## AUR helper
 
 O archboot prefere paru e aceita yay. Verifique o helper disponível:

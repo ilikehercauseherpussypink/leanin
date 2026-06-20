@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Added Sober Roblox launcher as a default Flatpak app.
+* Added Flatpak games category.
 * Final bug hunt and output cleanup.
 * Reordered installer steps for clearer source, SSH and GitHub flow.
 * Removed the empty final integration stage.
