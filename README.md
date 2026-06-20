@@ -175,9 +175,9 @@ O default é `mullvad-daemon.service` em `services/system`. Se a unit não exist
 
 O archboot configura a identidade Git global e mantém as chaves SSH dentro de `~/.ssh`. Um nome relativo como `personal` vira `~/.ssh/personal`; caminhos fora de `~/.ssh` são rejeitados.
 
-O título padrão da chave no GitHub é `person`, mas pode ser alterado no prompt. Quando `gh` está autenticado, a chave é cadastrada automaticamente. Sem `gh`, ou se o cadastro falhar, o fallback manual copia ou mostra a chave pública.
+O título padrão da chave no GitHub é `person`. Quando `gh` está autenticado e o usuário confirma o cadastro de uma chave ainda ausente, o archboot pede o título e registra a chave automaticamente. Se ela já estiver cadastrada, o título não é solicitado. Sem `gh`, ou se o cadastro falhar, o fallback manual copia ou mostra a chave pública e usa `person` como referência.
 
-O script pode remover as SSH keys antigas cadastradas no GitHub somente após confirmação. O default é não. Essa operação nunca remove arquivos locais de `~/.ssh`.
+O script pode remover somente as SSH keys remotas que não correspondem à chave local atual, após confirmação. O default é não. Essa operação nunca remove arquivos locais de `~/.ssh`.
 
 ## Codex
 

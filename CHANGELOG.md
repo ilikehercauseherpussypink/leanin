@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Fixed GitHub SSH prompt ordering so key title is only requested when a key will actually be registered.
 * Fixed confirmation prompts when running through `curl | bash` by reading from `/dev/tty`.
 * Added `--doctor` for quick local diagnostics.
 * Kept the personal fast main-based installer flow.

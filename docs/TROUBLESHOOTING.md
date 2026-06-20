@@ -14,7 +14,7 @@ bash install.sh --dry-run
 bash install.sh --plan --verbose
 ```
 
-Ao encontrar uma configuração existente que poderia ser substituída, o archboot pergunta com `[s/N]`. Enter mantém o estado atual. Os prompts leem o terminal real (`/dev/tty`), inclusive quando o instalador foi iniciado com `curl | bash`. Sem terminal disponível, o default seguro é manter o estado. `--yes` também preserva esse default seguro: ele instala somente o que falta e não força reconfigurações.
+Ao encontrar uma configuração existente que poderia ser substituída, o archboot pergunta com `[s/N]`. Enter mantém o estado atual. Os prompts leem o terminal real (`/dev/tty`), inclusive quando o instalador foi iniciado com `curl | bash`. Sem terminal disponível, o default seguro é manter o estado. `--yes` também preserva esse default seguro: ele instala somente o que falta e não força reconfigurações. No fluxo GitHub, o título da chave só é solicitado após a confirmação de cadastro de uma chave ainda ausente.
 
 ## Pacman lock
 
