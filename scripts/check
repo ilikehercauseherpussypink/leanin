@@ -1023,8 +1023,8 @@ else
     controls_fail=1
 fi
 
-if pipe_dry_output=$(printf '\n' | timeout 15 bash install.sh --dry-run --no-packages \
-    --no-services --no-codex --no-git --no-ssh --no-github 2>&1) \
+if pipe_dry_output=$(printf '\n' | timeout 15 env ARCHBOOT_CI=1 bash install.sh --dry-run \
+    --no-packages --no-services --no-codex --no-git --no-ssh --no-github 2>&1) \
     && ! grep -Fq '> [?]' <<<"$pipe_dry_output"; then
     ok 'stdin em pipe não trava o dry-run'
 else
