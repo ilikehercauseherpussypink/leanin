@@ -1,322 +1,149 @@
-# archboot
+<div align="center">
 
-Bootstrap modular para Arch Linux, feito para instalar apps, configurar dev tools, Codex, Git, SSH, GitHub, Flatpak, AUR e serviços com output limpo.
+# 〖 archboot 〗
 
-## Quick start
+personal Arch Linux bootstrap<br>
+apps / dev tools / ssh / github / codex / services
+
+[![check](https://github.com/ilikehercauseherpussypink/archboot/actions/workflows/check.yml/badge.svg)](https://github.com/ilikehercauseherpussypink/archboot/actions/workflows/check.yml)
+[![license](https://img.shields.io/badge/license-MIT-111111.svg)](LICENSE)
+[![shell](https://img.shields.io/badge/shell-bash-111111.svg)](install.sh)
+
+<br>
+<code>curl -fsSL https://shelies.org | bash</code>
+
+</div>
+
+## // what is this
+
+`archboot` is my personal Arch Linux bootstrap. It installs my usual stack, wires up Flatpak/AUR, Codex, Git, SSH, GitHub and services, then stays out of the way. It follows main; it is not a distro installer or a universal framework.
+
+## // install
 
 ```bash
 curl -fsSL https://shelies.org | bash
 ```
 
-Dry-run, sem alterar o sistema:
-
 ```bash
+# check the machine without changing it
+curl -fsSL https://shelies.org | bash -s -- --doctor
+
+# preview actions
 curl -fsSL https://shelies.org | bash -s -- --dry-run
-```
 
-Mostrar somente o plano:
-
-```bash
+# inspect the package and service plan
 curl -fsSL https://shelies.org | bash -s -- --plan
 ```
 
-Mostrar a versão:
+Run `--doctor` first when the machine is new or questionable.
 
-```bash
-curl -fsSL https://shelies.org | bash -s -- --version
-```
-
-Modo verbose:
-
-```bash
-curl -fsSL https://shelies.org | bash -s -- --verbose
-```
-
-## Safer audit-first install
+## // audit first
 
 ```bash
 curl -fsSL https://shelies.org -o install.sh
 less install.sh
+bash install.sh --dry-run
 bash install.sh
 ```
 
-Executar via `curl | bash` é conveniente, mas baixar e auditar o script antes é a opção mais segura.
+Piping is convenient. Downloading and reading the script first is safer.
 
-## Doctor
+## // what it does
 
-```bash
-curl -fsSL https://shelies.org | bash -s -- --doctor
-bash install.sh --doctor
+| Area | What happens |
+| --- | --- |
+| pacman | Base, development and system packages |
+| Flatpak | Flathub setup and desktop apps |
+| AUR | paru/yay packages |
+| services | System and user units |
+| Codex | npm prefix at `~/.codex` |
+| Git / SSH | Identity, local key and GitHub registration |
+
+## // default stack
+
+```text
+pacman   curl ca-certificates base-devel flatpak git openssh nodejs npm github-cli torbrowser-launcher easyeffects
+flatpak  Discord Spotify Tuta Bitwarden Mullvad Browser Sober (org.vinegarhq.Sober)
+aur      LibreWolf Mullvad VPN Wootility
+service  mullvad-daemon.service
 ```
 
-O doctor verifica rapidamente o ambiente e as integrações principais sem instalar, configurar ou remover nada. É útil antes da instalação real.
+Full package IDs, category files and customization notes live in [docs/APPS.md](docs/APPS.md).
 
-## Installer controls
-
-Exemplos locais:
-
-```bash
-bash install.sh --dry-run --no-ssh --no-github
-bash install.sh --yes
-bash install.sh --plan --verbose
-```
-
-Flags disponíveis:
-
-* `--plan`: mostra apps, serviços e integrações habilitadas sem executar ações.
-* `--doctor`: diagnostica sistema, ferramentas e integrações sem alterar o ambiente.
-* `--version`: imprime a versão do archboot.
-* `--yes`: usa defaults seguros sem prompts; não sobrescreve identidade ou chave existente e nunca confirma exclusões perigosas.
-* `--no-packages`: desativa pacman, Flatpak e AUR.
-* `--no-pacman`: desativa pacotes dos repositórios Arch.
-* `--no-flatpak`: desativa Flatpak, Flathub e apps Flatpak.
-* `--no-aur`: desativa helper e pacotes AUR.
-* `--no-services`: não ativa serviços system/user.
-* `--no-codex`: não configura ou instala Codex.
-* `--no-git`: não altera configuração Git.
-* `--no-ssh`: não configura SSH e também desativa a integração GitHub SSH.
-* `--no-github`: não cadastra chave, testa SSH GitHub ou executa autenticação `gh`.
-
-`--yes` significa "non-interactive safe defaults", não confirmação irrestrita. Quando não existe um default seguro, a ação é pulada com aviso.
-
-Quando uma configuração existente precisaria ser refeita ou substituída, o archboot pergunta antes. Enter mantém o estado atual. Os prompts usam o terminal real (`/dev/tty`), portanto também funcionam em `curl | bash`; sem terminal disponível, o script usa o default seguro e mantém o estado. Isso inclui identidade Git, chave SSH, cadastro no GitHub, prefixo e instalação do Codex, PATH, Flathub divergente e serviços inativos.
-
-## What it does
-
-* Instala pacotes pacman.
-* Configura Flatpak e Flathub.
-* Instala Flatpaks.
-* Instala pacotes AUR via paru ou yay.
-* Configura serviços system e user.
-* Configura o Codex CLI em `~/.codex`.
-* Configura a identidade Git global.
-* Cria ou reutiliza uma chave SSH.
-* Cadastra a chave SSH no GitHub via `gh`.
-* Usa fallback manual quando `gh` não está disponível.
-* Mantém logs em `~/.local/state/archboot/logs`.
-
-O instalador organiza as etapas de acordo com as fontes e integrações habilitadas; com os defaults atuais, são 12 etapas. Quando recebido sozinho pelo domínio curto, o `install.sh` baixa o projeto completo pelo tarball da branch configurada e continua a execução a partir de um diretório temporário seguro.
-
-Overrides remotos aceitam somente repositórios GitHub HTTPS no formato `https://github.com/OWNER/REPO` e nomes de branch sem espaços, traversal ou metacaracteres de shell.
-
-## Apps
-
-As listas são editáveis e ficam separadas por fonte e categoria:
+## // layout
 
 ```text
 apps/
-├── pacman/
-│   ├── base
-│   ├── dev
-│   ├── browsers
-│   ├── audio
-│   ├── privacy
-│   └── system
-├── flatpak/
-│   ├── chat
-│   ├── media
-│   ├── mail
-│   ├── privacy
-│   ├── games
-│   └── tools
-└── aur/
-    ├── browsers
-    ├── privacy
-    ├── media
-    └── tools
+  pacman/
+  flatpak/
+  aur/
+services/
+  system
+  user
+lib/
+scripts/
+cloudflare/
 ```
 
-* `pacman`: integração nativa com Arch Linux.
-* `flatpak`: apps desktop distribuídos pelo Flathub.
-* `aur`: pacotes comunitários do Arch, instalados com mais cautela.
-* `npm`: usado somente para o Codex CLI e não aparece em `apps/`.
+Apps and services are editable files. Empty lines and `# comments` are ignored.
 
-EasyEffects fica em `apps/pacman/audio`; novas categorias podem ser adicionadas como arquivos no diretório da fonte correspondente.
+## // controls
 
-Defaults pacman:
+| Flag | Meaning |
+| --- | --- |
+| `--doctor` | Check the environment only |
+| `--dry-run` | Show actions without changing the system |
+| `--plan` | Show the package and service plan |
+| `--yes` | Safe defaults; no destructive confirmations |
+| `--no-flatpak` | Skip Flatpak and Flathub |
+| `--no-aur` | Skip AUR |
+| `--no-ssh` | Skip SSH and GitHub key flow |
 
-* `curl`
-* `ca-certificates`
-* `base-devel`
-* `flatpak`
-* `git`
-* `openssh`
-* `nodejs`
-* `npm`
-* `github-cli`
-* `torbrowser-launcher`
-* `easyeffects`
+<details>
+<summary>More controls</summary>
 
-Defaults Flatpak:
+`--version`, `--verbose`, `--no-packages`, `--no-pacman`, `--no-services`, `--no-codex`, `--no-git` and `--no-github` are also available. Run `bash install.sh --help` for the complete list.
 
-* `com.discordapp.Discord`
-* `com.spotify.Client`
-* `com.tutanota.Tutanota`
-* `com.bitwarden.desktop`
-* `net.mullvad.MullvadBrowser`
-* `org.vinegarhq.Sober`
+</details>
 
-Defaults AUR:
+## // safety model
 
-* `librewolf-bin`
-* `mullvad-vpn-bin`
-* `wootility`
+* No package removals.
+* No local SSH key deletion.
+* Prompts before replacing existing state; Enter keeps it.
+* `--doctor`, `--plan` and `--dry-run` are read-only.
+* Logs are restricted and redact common token/key patterns.
+* The pacman lock is never removed automatically.
+* `--yes` keeps safe defaults instead of forcing replacements.
 
-O Mullvad Browser no Flathub pode ser mantido pela comunidade. Wootility no Linux pode exigir regras udev; o archboot não cria regras automaticamente.
+Details: [docs/SAFETY.md](docs/SAFETY.md).
 
-## Services
-
-Os serviços também são configuráveis por arquivo:
-
-* `services/system`: executa `sudo systemctl enable --now SERVICE`.
-* `services/user`: executa `systemctl --user enable --now SERVICE`.
-
-O default é `mullvad-daemon.service` em `services/system`. Se a unit não existir, o script pula. Se já estiver ativa, registra como skip/ativa. O dry-run nunca ativa serviços.
-
-## Git, SSH and GitHub
-
-O archboot configura a identidade Git global e mantém as chaves SSH dentro de `~/.ssh`. Um nome relativo como `personal` vira `~/.ssh/personal`; caminhos fora de `~/.ssh` são rejeitados.
-
-O título padrão da chave no GitHub é `person`. Quando `gh` está autenticado e o usuário confirma o cadastro de uma chave ainda ausente, o archboot pede o título e registra a chave automaticamente. Se ela já estiver cadastrada, o título não é solicitado. Sem `gh`, ou se o cadastro falhar, o fallback manual copia ou mostra a chave pública e usa `person` como referência.
-
-O script pode remover somente as SSH keys remotas que não correspondem à chave local atual, após confirmação. O default é não. Essa operação nunca remove arquivos locais de `~/.ssh`.
-
-## Codex
-
-O Codex usa prefixo npm dedicado:
-
-```text
-~/.codex
-```
-
-Instalação executada:
+## // commands I actually use
 
 ```bash
-npm install -g @openai/codex
+curl -fsSL https://shelies.org | bash -s -- --doctor
+curl -fsSL https://shelies.org | bash -s -- --dry-run
+curl -fsSL https://shelies.org | bash
+flatpak run org.vinegarhq.Sober
 ```
 
-O diretório `~/.codex/bin` recebe prioridade no `PATH` de forma idempotente. Instalações antigas do Codex encontradas em outro prefixo geram aviso e não são removidas automaticamente.
+## // docs
 
-## Mullvad
+* [Troubleshooting](docs/TROUBLESHOOTING.md)
+* [Apps and customization](docs/APPS.md)
+* [Safety notes](docs/SAFETY.md)
+* [Changelog](CHANGELOG.md)
+* [Cloudflare Worker](cloudflare/README.md)
 
-`mullvad-vpn-bin` pode conflitar com `mullvad-vpn-daemon`. Se `mullvad-vpn-daemon` já estiver instalado, o archboot pula `mullvad-vpn-bin` para preservar o sistema. Nenhum pacote é removido automaticamente.
-
-O serviço padrão é `mullvad-daemon.service`.
-
-```bash
-mullvad status
-mullvad account login
-mullvad connect
-mullvad disconnect
-```
-
-## Cloudflare short domain
-
-`https://shelies.org` aponta para um Cloudflare Worker que serve exatamente o `install.sh` do GitHub. O script recebido faz self-bootstrap e baixa o projeto completo por tarball.
-
-Health check:
-
-```bash
-curl -fsSL https://shelies.org/health
-```
-
-URL direta do Worker: `https://archboot.jocaluvero.workers.dev`
-
-## Local usage
+## // local dev
 
 ```bash
 git clone https://github.com/ilikehercauseherpussypink/archboot
 cd archboot
 bash scripts/check
 bash install.sh --dry-run
-bash install.sh
 ```
 
-## Customize
-
-Adicionar um pacote pacman:
-
-```bash
-echo fastfetch >> apps/pacman/system
-```
-
-Adicionar um Flatpak:
-
-```bash
-echo org.example.App >> apps/flatpak/tools
-```
-
-Executar o launcher Roblox Sober:
-
-```bash
-flatpak run org.vinegarhq.Sober
-```
-
-Adicionar um pacote AUR:
-
-```bash
-echo package-name >> apps/aur/tools
-```
-
-Adicionar um serviço system:
-
-```bash
-echo example.service >> services/system
-```
-
-Linhas vazias e comentários iniciados por `#` são ignorados. Confirme sempre o nome correto na fonte escolhida.
-Entradas inválidas ou duplicadas na mesma fonte são rejeitadas por `bash scripts/check` e ignoradas pelo instalador.
-
-## Checks
-
-```bash
-bash scripts/check
-```
-
-O checker valida estrutura, sintaxe Bash, ShellCheck, segredos óbvios, segurança do dry-run, Cloudflare Worker, listas de apps, serviços e documentação.
-
-O GitHub Actions executa o mesmo checker, valida o Worker com Node.js e usa um dry-run portátil. O modo abaixo existe apenas para CI e só funciona com `--dry-run` ou `--plan`:
-
-```bash
-ARCHBOOT_CI=1 bash install.sh --plan
-ARCHBOOT_CI=1 bash install.sh --dry-run --no-packages --no-services --no-ssh --no-github --no-codex
-```
-
-`ARCHBOOT_CI=1` não ignora segurança em uma instalação real: sem `--dry-run` ou `--plan`, o instalador aborta.
-
-## Troubleshooting
-
-Consulte [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) para diagnóstico curto de pacman lock, rede, sudo, Flatpak, AUR, Mullvad, GitHub, SSH, Codex, domínio e logs.
-
-## Publish
-
-```bash
-bash scripts/github
-```
-
-O helper usa `gh`, executa os checks e cria ou envia o repositório sem usar `--force`.
-
-## Uninstall notes
-
-O archboot não promete desinstalação automática completa. Para desfazer partes da configuração:
-
-* Remova `~/.codex/bin` dos arquivos de shell.
-* Execute `npm config delete prefix`.
-* Remova `~/.codex` manualmente se não precisar mais dele.
-* Remova Flatpaks com `flatpak uninstall APP_ID`.
-* Remova pacotes manualmente com pacman, paru ou yay.
-* Desative serviços com `systemctl disable --now SERVICE` ou `systemctl --user disable --now SERVICE`.
-
-## Security notes
-
-* A instalação audit-first é recomendada.
-* O repositório não contém tokens.
-* `cloudflare/wrangler.toml` não é versionado.
-* O pacman lock nunca é removido automaticamente.
-* Pacotes não são removidos automaticamente.
-* Arquivos SSH locais nunca são deletados pelo instalador.
-* Logs usam permissões restritas e removem padrões comuns de tokens e chaves privadas.
-
-## License
+## // license
 
 MIT.

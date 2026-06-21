@@ -37,7 +37,7 @@ app_lines() {
 step 1 10 'validando estrutura'
 required=(
     install.sh README.md CHANGELOG.md LICENSE .gitignore
-    docs/TROUBLESHOOTING.md
+    docs/TROUBLESHOOTING.md docs/APPS.md docs/SAFETY.md
     .github/workflows/check.yml
     scripts/check scripts/github
     cloudflare/worker.js cloudflare/wrangler.toml.example cloudflare/README.md
@@ -826,11 +826,18 @@ else
 fi
 
 if [[ -r /etc/os-release ]] && grep -Eq '^ID=arch$|^ID_LIKE=.*arch' /etc/os-release; then
-    if doctor_output=$(bash install.sh --doctor 2>&1) \
-        && grep -Fq '> doctor' <<<"$doctor_output" \
-        && grep -Fq '[ok] diagnóstico concluído' <<<"$doctor_output" \
+    doctor_status=0
+    doctor_output=$(bash install.sh --doctor 2>&1) || doctor_status=$?
+    if grep -Fq '> doctor' <<<"$doctor_output" \
         && ! grep -Fq '[ask]' <<<"$doctor_output"; then
-        ok '--doctor local é somente leitura e não interativo'
+        if (( doctor_status == 0 )) && grep -Fq '[ok] diagnóstico concluído' <<<"$doctor_output"; then
+            ok '--doctor local é somente leitura e não interativo'
+        elif grep -Fq '[error] diagnóstico encontrou' <<<"$doctor_output"; then
+            skip '--doctor local encontrou um problema real do host; modo permanece somente leitura'
+        else
+            error '--doctor local retornou diagnóstico incompleto'
+            controls_fail=1
+        fi
     else
         error '--doctor local falhou'
         controls_fail=1
@@ -1990,20 +1997,21 @@ docs_fail=0
 readme_tokens=(
     'https://shelies.org'
     'curl -fsSL https://shelies.org | bash'
-    'apps/pacman/audio'
-    'services/system'
-    'Cloudflare Worker'
-    'bash install.sh --plan --verbose'
-    'bash install.sh --yes'
-    'bash install.sh --doctor'
-    'Enter mantém o estado atual'
-    'ARCHBOOT_CI=1'
-    'Safer audit-first install'
-    'https://github.com/OWNER/REPO'
+    '--doctor'
+    '--dry-run'
+    '--plan'
+    'org.vinegarhq.Sober'
     'docs/TROUBLESHOOTING.md'
+    'docs/APPS.md'
+    'docs/SAFETY.md'
+    'CHANGELOG.md'
+    'cloudflare/README.md'
+    'personal Arch Linux bootstrap'
+    'It follows main'
+    'MIT.'
 )
 for token in "${readme_tokens[@]}"; do
-    if ! grep -Fq "$token" README.md; then
+    if ! grep -Fq -- "$token" README.md; then
         error "README.md não contém: $token"
         docs_fail=1
     fi
@@ -2034,12 +2042,32 @@ for token in "${troubleshooting_tokens[@]}"; do
         docs_fail=1
     fi
 done
-first_readme_curl=$(grep -m1 'curl -fsSL' README.md || true)
-if [[ $first_readme_curl != 'curl -fsSL https://shelies.org | bash' ]]; then
+if ! grep -Fq '<code>curl -fsSL https://shelies.org | bash</code>' README.md; then
     error 'README.md não prioriza o domínio curto no quick start'
     docs_fail=1
 fi
-for markdown_file in README.md cloudflare/README.md docs/TROUBLESHOOTING.md; do
+if grep -Fq 'raw.githubusercontent.com' README.md; then
+    error 'README.md prioriza raw.githubusercontent.com como instalação'
+    docs_fail=1
+fi
+if grep -Eq 'stable/dev|dev\.shelies\.org|STABLE_REF|DEV_REF' README.md; then
+    error 'README.md contém referência ao fluxo stable/dev removido'
+    docs_fail=1
+fi
+legacy_readme_headings=(
+    '## Quick start'
+    '## Safer audit-first install'
+    '## Installer controls'
+    '## What it does'
+    '## Security notes'
+)
+for heading in "${legacy_readme_headings[@]}"; do
+    if grep -Fq "$heading" README.md; then
+        error "README.md contém seção antiga duplicada: $heading"
+        docs_fail=1
+    fi
+done
+for markdown_file in README.md cloudflare/README.md docs/TROUBLESHOOTING.md docs/APPS.md docs/SAFETY.md; do
     if ! awk '/^```/ { open = !open } END { exit open ? 1 : 0 }' "$markdown_file"; then
         error "$markdown_file contém bloco de código aberto"
         docs_fail=1
