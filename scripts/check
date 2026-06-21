@@ -215,7 +215,9 @@ else
     error 'default LEANIN_REPO não aponta para ilikehercauseherpussypink/leanin'
     ((failures += 1))
 fi
-if [[ $(rg -o 'LEANIN_' install.sh lib | wc -l) -gt $(rg -o 'ARCHBOOT_' install.sh lib | wc -l) ]]; then
+leanin_var_count=$(grep -Roh -- 'LEANIN_' install.sh lib | wc -l)
+legacy_var_count=$(grep -Roh -- 'ARCHBOOT_' install.sh lib | wc -l)
+if (( leanin_var_count > legacy_var_count )); then
     ok 'LEANIN_* é primário e ARCHBOOT_* permanece apenas como compatibilidade'
 else
     error 'ARCHBOOT_* ainda domina as variáveis internas'
