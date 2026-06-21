@@ -3,6 +3,7 @@
 declare -ag PACMAN_APPS=() PACMAN_CORE=() PACMAN_REST=()
 declare -ag FLATPAK_APPS=() AUR_APPS=()
 declare -Ag APP_COUNTS=()
+declare -Ag APP_ITEMS=()
 declare -Ag APP_SEEN=()
 
 _trim() {
@@ -31,6 +32,9 @@ _reset_source_apps() {
     for key in "${!APP_COUNTS[@]}"; do
         [[ $key == "$source/"* ]] && unset 'APP_COUNTS[$key]'
     done
+    for key in "${!APP_ITEMS[@]}"; do
+        [[ $key == "$source/"* ]] && unset 'APP_ITEMS[$key]'
+    done
     for key in "${!APP_SEEN[@]}"; do
         [[ $key == "$source:"* ]] && unset 'APP_SEEN[$key]'
     done
@@ -38,7 +42,7 @@ _reset_source_apps() {
 }
 
 _read_app_file() {
-    local source=$1 file=$2 line item category key
+    local source=$1 file=$2 line item category key items=''
     local -n target=$3
     local count=0
     category=$(basename "$file")
@@ -64,6 +68,7 @@ _read_app_file() {
         fi
         APP_SEEN["$source:$item"]=$file
         target+=("$item")
+        items+="$item"$'\n'
         ((count += 1))
         if [[ $source == pacman ]]; then
             PACMAN_APPS+=("$item")
@@ -75,6 +80,7 @@ _read_app_file() {
     done <"$file"
 
     APP_COUNTS["$key"]=$count
+    APP_ITEMS["$key"]=${items%$'\n'}
 }
 
 read_source_apps() {
@@ -134,25 +140,35 @@ validate_apps() {
 }
 
 print_plan() {
-    local source key count suffix
+    local source title key count suffix
     for key in "${!APP_COUNTS[@]}"; do
         printf 'PLAN category %s=%s\n' "$key" "${APP_COUNTS[$key]}" >>"$LOG_FILE"
     done
     if (( ! VERBOSE )); then
         ok "pacman: $(count_apps pacman) pacotes"
-        ok "flatpak: $(count_apps flatpak) apps"
-        ok "aur: $(count_apps aur) pacotes"
+        ok "Flatpak: $(count_apps flatpak) apps"
+        ok "AUR: $(count_apps aur) pacotes"
         printf 'PLAN: pacman=%s flatpak=%s aur=%s\n' \
             "$(count_apps pacman)" "$(count_apps flatpak)" "$(count_apps aur)" >>"$LOG_FILE"
         return 0
     fi
     for source in pacman flatpak aur; do
+        case $source in
+            pacman) title=pacman ;;
+            flatpak) title=Flatpak ;;
+            aur) title=AUR ;;
+        esac
         while IFS= read -r key; do
             [[ -n $key ]] || continue
             count=${APP_COUNTS[$key]}
+            (( count > 0 )) || continue
             suffix='pacotes'
             (( count == 1 )) && suffix='pacote'
-            ok "$key: $count $suffix"
+            if [[ $source == flatpak ]]; then
+                suffix='apps'
+                (( count == 1 )) && suffix='app'
+            fi
+            ok "$title/${key#*/}: $count $suffix"
         done < <(printf '%s\n' "${!APP_COUNTS[@]}" | grep "^$source/" | sort)
     done
 }

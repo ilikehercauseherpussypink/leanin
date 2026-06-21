@@ -16,12 +16,12 @@ flatpak_remote() {
         remote_url=$(flatpak remotes --show-details --columns=name,url 2>/dev/null \
             | awk -F '\t' '$1 == "flathub" { print $3; exit }')
         if [[ -z $remote_url || $remote_url == "$FLATHUB_REMOTE_URL" ]]; then
-            skip 'flathub já configurado'
+            skip 'Flathub já configurado'
             return 0
         fi
         if ! ask_reconfigure "flathub já existe com configuração diferente ($remote_url)" \
             'flathub já existe com configuração diferente. deseja corrigir?'; then
-            skip 'configuração atual do flathub mantida'
+            skip 'configuração atual do Flathub mantida'
             return 0
         fi
         if (( DRY_RUN )); then
@@ -29,24 +29,24 @@ flatpak_remote() {
             return 0
         fi
         if run_cmd 'corrigir flathub' flatpak remote-modify --url "$FLATHUB_REMOTE_URL" flathub; then
-            ok 'flathub corrigido'
+            ok 'Flathub corrigido'
             return 0
         fi
-        error 'falha ao corrigir flathub'
+        error 'falha ao corrigir Flathub'
         FAILURES+=('flatpak:flathub')
         return 1
     fi
     if (( DRY_RUN )); then
         dry_run_msg flatpak remote-add --if-not-exists flathub \
             "$FLATHUB_REPO_URL"
-        printf '> [dry-run] configuraria o remote flathub\n'
+        printf '> [dry-run] configuraria o remote Flathub\n'
         return 0
     fi
     if run_cmd 'configurar flathub' flatpak remote-add --if-not-exists flathub \
         "$FLATHUB_REPO_URL"; then
-        ok 'flathub configurado'
+        ok 'Flathub configurado'
     else
-        error 'falha ao configurar flathub'
+        error 'falha ao configurar Flathub'
         info 'teste: flatpak remotes'
         FAILURES+=('flatpak:flathub')
         return 1
@@ -70,9 +70,9 @@ flatpak_setup() {
         return 1
     fi
     if command_exists flatpak; then
-        ok 'flatpak disponível'
+        ok 'Flatpak disponível'
     elif (( DRY_RUN )); then
-        printf '> [dry-run] flatpak ficaria disponível após instalação\n'
+        printf '> [dry-run] Flatpak ficaria disponível após instalação\n'
     fi
     flatpak_remote || return 1
 }

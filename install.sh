@@ -11,7 +11,7 @@ initial_banner() {
     if (( plan_mode )); then
         printf '\n'
     else
-        printf 'Bootstrap modular para Arch Linux\n'
+        printf 'Bootstrap pessoal para Arch Linux\n'
     fi
 }
 
@@ -294,77 +294,104 @@ parse_args() {
 
 collect_disabled_features() {
     (( SKIP_PACMAN )) && DISABLED_FEATURES+=('pacman')
-    (( SKIP_FLATPAK )) && DISABLED_FEATURES+=('flatpak')
-    (( SKIP_AUR )) && DISABLED_FEATURES+=('aur')
+    (( SKIP_FLATPAK )) && DISABLED_FEATURES+=('Flatpak')
+    (( SKIP_AUR )) && DISABLED_FEATURES+=('AUR')
     (( SKIP_SERVICES )) && DISABLED_FEATURES+=('serviços')
-    (( SKIP_CODEX )) && DISABLED_FEATURES+=('codex')
-    (( SKIP_GIT )) && DISABLED_FEATURES+=('git')
-    (( SKIP_SSH )) && DISABLED_FEATURES+=('ssh')
-    (( SKIP_GITHUB )) && DISABLED_FEATURES+=('github')
+    (( SKIP_CODEX )) && DISABLED_FEATURES+=('Codex')
+    (( SKIP_GIT )) && DISABLED_FEATURES+=('Git')
+    (( SKIP_SSH )) && DISABLED_FEATURES+=('SSH')
+    (( SKIP_GITHUB )) && DISABLED_FEATURES+=('GitHub')
     return 0
 }
 
 plan_status() {
     local disabled=$1
-    (( disabled )) && printf 'disabled' || printf 'enabled'
+    (( disabled )) && printf 'desativado' || printf 'habilitado'
+}
+
+plan_count() {
+    local label=$1 count=$2 singular=$3 plural=$4
+    if (( count == 1 )); then
+        ok "$label: 1 $singular"
+    else
+        ok "$label: $count $plural"
+    fi
+}
+
+print_verbose_plan() {
+    local source='' title='' key='' category='' items='' found=0
+    local -a sources=(pacman flatpak aur)
+    local -a titles=(pacman Flatpak AUR)
+    local index=0
+
+    for source in "${sources[@]}"; do
+        title=${titles[$index]}
+        ((index += 1))
+        printf '\n%s\n' "$title"
+        found=0
+        while IFS= read -r key; do
+            [[ -n $key && ${APP_COUNTS[$key]} -gt 0 ]] || continue
+            category=${key#*/}
+            items=${APP_ITEMS[$key]//$'\n'/ }
+            printf '  %-10s %s\n' "$category" "$items"
+            found=1
+        done < <(printf '%s\n' "${!APP_COUNTS[@]}" | grep "^$source/" | sort)
+        (( found )) || printf '  nenhum\n'
+    done
+
+    printf '\nserviços\n'
+    if ((${#SYSTEM_SERVICES[@]})); then
+        printf '  %-10s %s\n' system "${SYSTEM_SERVICES[*]}"
+    else
+        printf '  system     nenhum\n'
+    fi
+    if ((${#USER_SERVICES[@]})); then
+        printf '  %-10s %s\n' user "${USER_SERVICES[*]}"
+    else
+        printf '  user       nenhum\n'
+    fi
 }
 
 show_plan_only() {
-    local key item
     load_plan
 
-    printf 'plan\n\n'
+    printf 'plano\n\n'
     if (( SKIP_PACMAN )); then
-        printf 'pacman: disabled (%s configurados)\n' "$(count_apps pacman)"
+        info "pacman: desativado ($(count_apps pacman) configurados)"
     else
-        printf 'pacman: %s pacotes\n' "$(count_apps pacman)"
+        plan_count pacman "$(count_apps pacman)" pacote pacotes
     fi
     if (( SKIP_FLATPAK )); then
-        printf 'flatpak: disabled (%s configurados)\n' "$(count_apps flatpak)"
+        info "Flatpak: desativado ($(count_apps flatpak) configurados)"
     else
-        printf 'flatpak: %s apps\n' "$(count_apps flatpak)"
+        plan_count Flatpak "$(count_apps flatpak)" app apps
     fi
     if (( SKIP_AUR )); then
-        printf 'aur: disabled (%s configurados)\n' "$(count_apps aur)"
+        info "AUR: desativado ($(count_apps aur) configurados)"
     else
-        printf 'aur: %s pacotes\n' "$(count_apps aur)"
+        plan_count AUR "$(count_apps aur)" pacote pacotes
     fi
     if (( SKIP_SERVICES )); then
-        printf 'system services: disabled (%s configurados)\n' "${#SYSTEM_SERVICES[@]}"
-        printf 'user services: disabled (%s configurados)\n' "${#USER_SERVICES[@]}"
+        info "serviços system: desativado (${#SYSTEM_SERVICES[@]} configurados)"
+        info "serviços user: desativado (${#USER_SERVICES[@]} configurados)"
     else
-        if ((${#SYSTEM_SERVICES[@]} == 1)); then
-            printf 'system services: 1 serviço\n'
-        else
-            printf 'system services: %s serviços\n' "${#SYSTEM_SERVICES[@]}"
-        fi
-        if ((${#USER_SERVICES[@]} == 1)); then
-            printf 'user services: 1 serviço\n'
-        else
-            printf 'user services: %s serviços\n' "${#USER_SERVICES[@]}"
-        fi
+        plan_count 'serviços system' "${#SYSTEM_SERVICES[@]}" serviço serviços
+        plan_count 'serviços user' "${#USER_SERVICES[@]}" serviço serviços
     fi
-    printf 'codex: %s\n' "$(plan_status "$SKIP_CODEX")"
-    printf 'git: %s\n' "$(plan_status "$SKIP_GIT")"
+    info "Codex: $(plan_status "$SKIP_CODEX")"
+    info "Git: $(plan_status "$SKIP_GIT")"
     if (( SKIP_SSH || SKIP_GITHUB )); then
-        printf 'ssh/github: ssh=%s github=%s\n' \
-            "$(plan_status "$SKIP_SSH")" "$(plan_status "$SKIP_GITHUB")"
+        info 'SSH/GitHub:'
+        info "SSH: $(plan_status "$SKIP_SSH")"
+        info "GitHub: $(plan_status "$SKIP_GITHUB")"
     else
-        printf 'ssh/github: enabled\n'
+        info 'SSH/GitHub: habilitado'
     fi
 
     if (( VERBOSE )); then
-        printf '\ncategories\n'
-        while IFS= read -r key; do
-            [[ -n $key ]] && printf '%s: %s\n' "$key" "${APP_COUNTS[$key]}"
-        done < <(printf '%s\n' "${!APP_COUNTS[@]}" | sort)
-        printf '\napps\n'
-        for item in "${PACMAN_APPS[@]}"; do printf 'pacman: %s\n' "$item"; done
-        for item in "${FLATPAK_APPS[@]}"; do printf 'flatpak: %s\n' "$item"; done
-        for item in "${AUR_APPS[@]}"; do printf 'aur: %s\n' "$item"; done
-        for item in "${SYSTEM_SERVICES[@]}"; do printf 'system service: %s\n' "$item"; done
-        for item in "${USER_SERVICES[@]}"; do printf 'user service: %s\n' "$item"; done
+        print_verbose_plan
     fi
+    return 0
 }
 
 load_plan() {
@@ -491,21 +518,21 @@ show_summary() {
     if (( failure_count == 0 )); then
         ok 'concluído'
     else
-        warn "concluído com $failure_count falha(s)"
+        error "concluído com $failure_count falha(s)"
     fi
 
-    printf '\n> Pacotes:\n'
+    printf '\npacotes\n'
     if (( DRY_RUN )); then
         summary_counts pacman "${#PACMAN_PLANNED[@]}" planejados "${#PACMAN_SKIPPED[@]}" 'pacman:'
-        summary_counts flatpak "${#FLATPAK_PLANNED[@]}" planejados "${#FLATPAK_SKIPPED[@]}" 'flatpak:'
-        summary_counts aur "${#AUR_PLANNED[@]}" planejados "${#AUR_SKIPPED[@]}" 'aur:'
+        summary_counts Flatpak "${#FLATPAK_PLANNED[@]}" planejados "${#FLATPAK_SKIPPED[@]}" 'flatpak:'
+        summary_counts AUR "${#AUR_PLANNED[@]}" planejados "${#AUR_SKIPPED[@]}" 'aur:'
     else
         summary_counts pacman "${#PACMAN_INSTALLED[@]}" instalados "${#PACMAN_SKIPPED[@]}" 'pacman:'
-        summary_counts flatpak "${#FLATPAK_INSTALLED[@]}" instalados "${#FLATPAK_SKIPPED[@]}" 'flatpak:'
-        summary_counts aur "${#AUR_INSTALLED[@]}" instalados "${#AUR_SKIPPED[@]}" 'aur:'
+        summary_counts Flatpak "${#FLATPAK_INSTALLED[@]}" instalados "${#FLATPAK_SKIPPED[@]}" 'flatpak:'
+        summary_counts AUR "${#AUR_INSTALLED[@]}" instalados "${#AUR_SKIPPED[@]}" 'aur:'
     fi
 
-    printf '\n> Configuração:\n'
+    printf '\nconfiguração\n'
     if (( DRY_RUN )); then
         summary_counts serviços "${#SERVICES_PLANNED[@]}" planejados \
             "$((${#SERVICES_ALREADY[@]} + ${#SERVICES_SKIPPED[@]}))" 'service:'
@@ -554,7 +581,7 @@ show_summary() {
     fi
 
     if [[ $LOG_FILE != /dev/null ]]; then
-        printf '\n> Logs:\n'
+        printf '\nlogs\n'
         if (( failure_count > 0 )); then
             info "veja log: $LOG_FILE"
         else
@@ -597,7 +624,7 @@ main() {
     load_plan
     calculate_total_steps
 
-    next_step 'validando sistema'
+    next_step 'sistema'
     if [[ $CI_MODE == 1 ]]; then
         LOG_FILE=/dev/null
         PACMAN_BLOCKED=0
@@ -613,10 +640,10 @@ main() {
         ok 'internet disponível'
         lock
         state
-        ok "log criado: $LOG_FILE"
+        ok "log: $LOG_FILE"
     fi
 
-    next_step 'lendo plano'
+    next_step 'plano'
     if ! validate_apps; then
         warn 'há entradas com formato improvável; a instalação continuará'
     fi
@@ -625,7 +652,7 @@ main() {
     print_disabled_plan
 
     if (( ! SKIP_PACMAN && ${#PACMAN_CORE[@]} > 0 )); then
-        next_step 'pacman essenciais'
+        next_step 'pacman base'
         pacman_install "${PACMAN_CORE[@]}"
     fi
 
@@ -636,7 +663,7 @@ main() {
     fi
 
     if (( ! SKIP_PACMAN && ${#PACMAN_REST[@]} > 0 )); then
-        next_step 'pacman restantes'
+        next_step 'pacman apps'
         pacman_install "${PACMAN_REST[@]}"
     fi
 

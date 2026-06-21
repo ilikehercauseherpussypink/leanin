@@ -5,10 +5,14 @@ _doctor_essential_failure() {
     ((DOCTOR_FAILURES += 1))
 }
 
+_doctor_section() {
+    printf '\n%s\n' "$1"
+}
+
 _doctor_ci() {
     info 'modo CI: diagnóstico do host pulado'
     if [[ -s $ARCHBOOT_ROOT/services/system ]]; then
-        ok 'services/system disponível'
+        ok 'lista services/system disponível'
     else
         _doctor_essential_failure 'services/system ausente ou vazio'
     fi
@@ -16,7 +20,7 @@ _doctor_ci() {
 
 _doctor_system() {
     if arch; then
-        ok 'Arch Linux detectado'
+        ok 'Arch Linux'
     else
         _doctor_essential_failure 'Arch Linux não detectado'
     fi
@@ -24,11 +28,11 @@ _doctor_system() {
     if root; then
         _doctor_essential_failure 'execução como root; use um usuário comum'
     else
-        ok 'execução como usuário comum'
+        ok 'usuário comum'
     fi
 
     if type -P sudo >/dev/null 2>&1; then
-        ok 'sudo disponível'
+        ok 'sudo'
     else
         _doctor_essential_failure 'sudo ausente'
     fi
@@ -36,13 +40,13 @@ _doctor_system() {
     if command_exists curl \
         && curl -fsSLI --retry 1 --connect-timeout 5 --max-time 12 \
             https://archlinux.org/ >/dev/null 2>&1; then
-        ok 'internet disponível'
+        ok 'internet'
     else
         _doctor_essential_failure 'internet indisponível; teste: curl -I https://archlinux.org'
     fi
 
     if command_exists pacman; then
-        ok 'pacman disponível'
+        ok 'pacman'
     else
         _doctor_essential_failure 'pacman ausente'
     fi
@@ -50,28 +54,22 @@ _doctor_system() {
     if [[ -e /var/lib/pacman/db.lck ]]; then
         _doctor_essential_failure 'pacman lock ativo'
     else
-        ok 'pacman sem lock'
-    fi
-
-    if [[ -s $ARCHBOOT_ROOT/services/system ]]; then
-        ok 'services/system disponível'
-    else
-        _doctor_essential_failure 'services/system ausente ou vazio'
+        ok 'pacman lock livre'
     fi
 }
 
 _doctor_packages() {
-    local helper='none' codex_path=''
+    local helper='none'
 
     if command_exists flatpak; then
-        ok 'flatpak disponível'
+        ok 'Flatpak'
         if flatpak remotes --columns=name 2>/dev/null | grep -Fxq flathub; then
-            ok 'flathub configurado'
+            ok 'Flathub'
         else
             info 'flathub não configurado'
         fi
     else
-        info 'flatpak não disponível'
+        info 'Flatpak não disponível'
     fi
 
     if command_exists paru; then
@@ -85,14 +83,19 @@ _doctor_packages() {
         ok "AUR helper: $helper"
     fi
 
+}
+
+_doctor_tools() {
+    local codex_path=''
+
     if command_exists git; then
-        ok 'git disponível'
+        ok 'Git'
     else
-        info 'git não disponível'
+        info 'Git não disponível'
     fi
 
     if command_exists npm; then
-        ok 'npm disponível'
+        ok 'npm'
     else
         info 'npm não disponível'
     fi
@@ -110,18 +113,17 @@ _doctor_github() {
     local ssh_output='' ssh_status=0
 
     if command_exists gh; then
-        ok 'gh disponível'
         if gh auth status >/dev/null 2>&1; then
-            info 'gh autenticado'
+            ok 'GitHub CLI autenticado'
         else
-            info 'gh não autenticado; use: gh auth login'
+            info 'GitHub CLI não autenticado; use: gh auth login'
         fi
     else
-        info 'gh não disponível'
+        info 'GitHub CLI não disponível'
     fi
 
     if [[ -f $HOME/.ssh/id_ed25519.pub ]]; then
-        ok 'SSH key local: ~/.ssh/id_ed25519.pub'
+        ok 'chave SSH local: ~/.ssh/id_ed25519.pub'
     else
         info 'SSH key padrão não encontrada'
     fi
@@ -136,7 +138,7 @@ _doctor_github() {
         if [[ $ssh_output == *'successfully authenticated'* \
             || $ssh_output == *"You've successfully authenticated"* \
             || $ssh_output == *'does not provide shell access'* ]]; then
-            info 'SSH GitHub autenticado'
+            ok 'SSH GitHub'
         else
             info "SSH GitHub não confirmado (código $ssh_status)"
         fi
@@ -147,6 +149,11 @@ _doctor_github() {
 
 _doctor_services() {
     local service=mullvad-daemon.service
+    if [[ -s $ARCHBOOT_ROOT/services/system ]]; then
+        ok 'lista services/system disponível'
+    else
+        _doctor_essential_failure 'services/system ausente ou vazio'
+    fi
     if ! command_exists systemctl; then
         info 'systemctl não disponível'
         return 0
@@ -154,7 +161,7 @@ _doctor_services() {
     if ! systemctl cat "$service" >/dev/null 2>&1; then
         info "$service ausente"
     elif systemctl is-active --quiet "$service" >/dev/null 2>&1; then
-        info "$service ativo"
+        ok "$service ativo"
     else
         info "$service inativo"
     fi
@@ -162,14 +169,21 @@ _doctor_services() {
 
 doctor_run() {
     DOCTOR_FAILURES=0
-    printf '> doctor\n'
+    printf '\ndoctor\n'
 
     if [[ ${CI_MODE:-0} == 1 ]]; then
+        _doctor_section 'sistema'
         _doctor_ci
     else
+        _doctor_section 'sistema'
         _doctor_system
+        _doctor_section 'pacotes'
         _doctor_packages
+        _doctor_section 'ferramentas'
+        _doctor_tools
+        _doctor_section 'integrações'
         _doctor_github
+        _doctor_section 'serviços'
         _doctor_services
     fi
 

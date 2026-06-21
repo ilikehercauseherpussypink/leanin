@@ -55,8 +55,8 @@ print_services_plan() {
     local system_label='serviços' user_label='serviços'
     (( system_count == 1 )) && system_label='serviço'
     (( user_count == 1 )) && user_label='serviço'
-    ok "system services: $system_count $system_label"
-    ok "user services: $user_count $user_label"
+    ok "serviços system: $system_count $system_label"
+    ok "serviços user: $user_count $user_label"
     printf 'PLAN services: system=%s user=%s\n' "$system_count" "$user_count" >>"$LOG_FILE"
 }
 

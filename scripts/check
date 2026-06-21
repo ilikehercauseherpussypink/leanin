@@ -771,14 +771,14 @@ fi
 
 if plan_output=$(bash install.sh --plan 2>&1) \
     && grep -Fq 'archboot 0.1.1' <<<"$plan_output" \
-    && grep -Fq 'pacman: 11 pacotes' <<<"$plan_output" \
-    && grep -Fq 'flatpak: 6 apps' <<<"$plan_output" \
-    && grep -Fq 'aur: 3 pacotes' <<<"$plan_output" \
-    && grep -Fq 'system services: 1 serviço' <<<"$plan_output" \
-    && grep -Fq 'user services: 0 serviços' <<<"$plan_output" \
-    && grep -Fq 'codex: enabled' <<<"$plan_output" \
-    && grep -Fq 'git: enabled' <<<"$plan_output" \
-    && grep -Fq 'ssh/github: enabled' <<<"$plan_output" \
+    && grep -Fq '> [ok] pacman: 11 pacotes' <<<"$plan_output" \
+    && grep -Fq '> [ok] Flatpak: 6 apps' <<<"$plan_output" \
+    && grep -Fq '> [ok] AUR: 3 pacotes' <<<"$plan_output" \
+    && grep -Fq '> [ok] serviços system: 1 serviço' <<<"$plan_output" \
+    && grep -Fq '> [ok] serviços user: 0 serviços' <<<"$plan_output" \
+    && grep -Fq '> [info] Codex: habilitado' <<<"$plan_output" \
+    && grep -Fq '> [info] Git: habilitado' <<<"$plan_output" \
+    && grep -Fq '> [info] SSH/GitHub: habilitado' <<<"$plan_output" \
     && ! grep -Fq '[ask]' <<<"$plan_output" \
     && ! grep -Fq '> Etapa' <<<"$plan_output" \
     && ! grep -Eq '(pacman -S|flatpak (install|remote-add)|yay -S|paru -S|systemctl .*enable|npm (config|install)|gh (auth|ssh-key)|ssh-keygen)' <<<"$plan_output"; then
@@ -789,10 +789,18 @@ else
 fi
 
 if verbose_plan_output=$(bash install.sh --plan --verbose 2>&1) \
-    && grep -Fq 'categories' <<<"$verbose_plan_output" \
-    && grep -Fq 'apps' <<<"$verbose_plan_output" \
-    && grep -Fq 'flatpak/games: 1' <<<"$verbose_plan_output" \
-    && grep -Fq 'flatpak: org.vinegarhq.Sober' <<<"$verbose_plan_output" \
+    && grep -Fqx 'pacman' <<<"$verbose_plan_output" \
+    && grep -Fq 'audio      easyeffects' <<<"$verbose_plan_output" \
+    && grep -Fq 'base ' <<<"$verbose_plan_output" \
+    && grep -Fqx 'Flatpak' <<<"$verbose_plan_output" \
+    && grep -Fq 'chat ' <<<"$verbose_plan_output" \
+    && grep -Fq 'games ' <<<"$verbose_plan_output" \
+    && grep -Fq 'org.vinegarhq.Sober' <<<"$verbose_plan_output" \
+    && grep -Fqx 'AUR' <<<"$verbose_plan_output" \
+    && grep -Fq 'browsers ' <<<"$verbose_plan_output" \
+    && grep -Fqx 'serviços' <<<"$verbose_plan_output" \
+    && grep -Fq 'system ' <<<"$verbose_plan_output" \
+    && ! grep -Fq 'categories' <<<"$verbose_plan_output" \
     && ! grep -Fq '[ask]' <<<"$verbose_plan_output"; then
     ok '--plan --verbose permanece somente leitura'
 else
@@ -828,7 +836,11 @@ fi
 if [[ -r /etc/os-release ]] && grep -Eq '^ID=arch$|^ID_LIKE=.*arch' /etc/os-release; then
     doctor_status=0
     doctor_output=$(bash install.sh --doctor 2>&1) || doctor_status=$?
-    if grep -Fq '> doctor' <<<"$doctor_output" \
+    if grep -Fq $'doctor\n\nsistema' <<<"$doctor_output" \
+        && grep -Fq $'pacotes\n' <<<"$doctor_output" \
+        && grep -Fq $'ferramentas\n' <<<"$doctor_output" \
+        && grep -Fq $'integrações\n' <<<"$doctor_output" \
+        && grep -Fq $'serviços\n' <<<"$doctor_output" \
         && ! grep -Fq '[ask]' <<<"$doctor_output"; then
         if (( doctor_status == 0 )) && grep -Fq '[ok] diagnóstico concluído' <<<"$doctor_output"; then
             ok '--doctor local é somente leitura e não interativo'
@@ -847,7 +859,9 @@ else
 fi
 
 if ci_doctor_output=$(ARCHBOOT_CI=1 bash install.sh --doctor 2>&1) \
+    && grep -Fq $'doctor\n\nsistema' <<<"$ci_doctor_output" \
     && grep -Fq '[info] modo CI: diagnóstico do host pulado' <<<"$ci_doctor_output" \
+    && grep -Fq '[ok] lista services/system disponível' <<<"$ci_doctor_output" \
     && grep -Fq '[ok] diagnóstico concluído' <<<"$ci_doctor_output" \
     && ! grep -Fq '[ask]' <<<"$ci_doctor_output"; then
     ok 'ARCHBOOT_CI=1 aceita --doctor'
@@ -873,13 +887,13 @@ else
 fi
 
 plan_flag_cases=(
-    '--no-pacman|pacman: disabled'
-    '--no-flatpak|flatpak: disabled'
-    '--no-aur|aur: disabled'
-    '--no-services|system services: disabled'
-    '--no-codex|codex: disabled'
-    '--no-git|git: disabled'
-    '--no-github|github=disabled'
+    '--no-pacman|pacman: desativado'
+    '--no-flatpak|Flatpak: desativado'
+    '--no-aur|AUR: desativado'
+    '--no-services|serviços system: desativado'
+    '--no-codex|Codex: desativado'
+    '--no-git|Git: desativado'
+    '--no-github|GitHub: desativado'
 )
 for plan_case in "${plan_flag_cases[@]}"; do
     flag=${plan_case%%|*}
@@ -915,11 +929,11 @@ fi
 
 layout_args=(--dry-run --no-packages --no-services --no-codex --no-git --no-ssh --no-github)
 if layout_output=$(ARCHBOOT_CI=1 bash install.sh "${layout_args[@]}" 2>&1) \
-    && grep -Fq '> Etapa 1/3: validando sistema' <<<"$layout_output" \
-    && grep -Fq '> Etapa 2/3: lendo plano' <<<"$layout_output" \
+    && grep -Fq '> Etapa 1/3: sistema' <<<"$layout_output" \
+    && grep -Fq '> Etapa 2/3: plano' <<<"$layout_output" \
     && grep -Fq '> Etapa 3/3: resumo' <<<"$layout_output" \
-    && grep -Fq '> Pacotes:' <<<"$layout_output" \
-    && grep -Fq '> Configuração:' <<<"$layout_output" \
+    && grep -Fq $'pacotes\n> [info]' <<<"$layout_output" \
+    && grep -Fq $'configuração\n> [info]' <<<"$layout_output" \
     && ! grep -Fq 'finalizando integrações' <<<"$layout_output" \
     && ! grep -Fq '> Etapa 4/' <<<"$layout_output"; then
     ok 'etapas ativas usam total dinâmico e resumo separado'
@@ -934,6 +948,21 @@ if default_dry_output=$(ARCHBOOT_CI=1 bash install.sh --dry-run --no-ssh --no-gi
     ok 'dry-run sem flags de fonte conclui todas as etapas ativas'
 else
     error 'dry-run sem flags de fonte encerrou antes do resumo'
+    controls_fail=1
+fi
+
+if output_quality=$(ARCHBOOT_CI=1 bash install.sh --dry-run --no-ssh --no-github 2>&1) \
+    && grep -Fq '> [dry-run]' <<<"$output_quality" \
+    && grep -Fq $'pacotes\n> [info]' <<<"$output_quality" \
+    && grep -Fq $'configuração\n> [info]' <<<"$output_quality" \
+    && ! grep -Fq 'finalizando integrações' <<<"$output_quality" \
+    && ! grep -Fq 'Identity added:' <<<"$output_quality" \
+    && ! grep -Fq 'ssh_askpass:' <<<"$output_quality" \
+    && awk 'NF == 0 { blank += 1; if (blank > 2) exit 1 } NF != 0 { blank = 0 }' \
+        <<<"$output_quality"; then
+    ok 'dry-run mantém grupos, espaçamento e saída limpa'
+else
+    error 'dry-run perdeu agrupamento, espaçamento ou silêncio de comandos internos'
     controls_fail=1
 fi
 
@@ -990,7 +1019,7 @@ fi
 # A expressão é intencionalmente literal para validar o código-fonte.
 # shellcheck disable=SC2016
 if grep -Fq 'if (( failure_count == 0 )); then' install.sh \
-    && grep -Fq 'warn "concluído com $failure_count falha(s)"' install.sh \
+    && grep -Fq 'error "concluído com $failure_count falha(s)"' install.sh \
     && grep -Fq 'summary_counts pacman' install.sh \
     && grep -Fq 'summary_counts serviços' install.sh; then
     ok 'resumo distingue sucesso, falhas e contagens por fonte'

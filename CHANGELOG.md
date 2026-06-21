@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* Polished runtime output with clearer stage names, summaries, and diagnostics.
+* Improved doctor, plan, and dry-run formatting.
+* Added output regression checks.
 * Refined the README into a portfolio-style project page.
 * Improved the local SVG project banner.
 * Added stricter README structure checks.
