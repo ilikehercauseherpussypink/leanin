@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 420" role="img" aria-labelledby="title desc">
+  <title id="title">archboot terminal card</title>
+  <desc id="desc">A dark terminal card for archboot with its install command.</desc>
+  <rect width="1440" height="420" fill="#0b0f14"/>
+  <rect x="48" y="42" width="1344" height="336" rx="16" fill="#111820" stroke="#2a3948" stroke-width="2"/>
+  <rect x="48" y="42" width="1344" height="64" rx="16" fill="#16212b"/>
+  <path d="M48 90h1344" stroke="#2a3948" stroke-width="2"/>
+  <circle cx="88" cy="74" r="8" fill="#fa5f57"/>
+  <circle cx="116" cy="74" r="8" fill="#f8bd4f"/>
+  <circle cx="144" cy="74" r="8" fill="#4ecb71"/>
+  <text x="184" y="82" fill="#8fa4b8" font-family="monospace" font-size="20">archboot / main</text>
+  <text x="96" y="180" fill="#f4f7fa" font-family="monospace" font-size="52" font-weight="700">archboot</text>
+  <text x="98" y="224" fill="#91a7bb" font-family="monospace" font-size="24">personal Arch Linux bootstrap</text>
+  <text x="98" y="304" fill="#5eead4" font-family="monospace" font-size="25">$</text>
+  <text x="128" y="304" fill="#e6edf3" font-family="monospace" font-size="25">curl -fsSL https://shelies.org | bash</text>
+  <rect x="96" y="330" width="744" height="3" fill="#2dd4bf"/>
+</svg>

@@ -2,9 +2,10 @@
 
 ## Unreleased
 
-* Replaced the README with a short English front page.
+* Redesigned the README as a portfolio-style English project page.
+* Added a local SVG project banner.
 * Moved verbose documentation out of the main README.
-* Added stricter documentation checks to prevent Portuguese/manual-style drift.
+* Added stricter documentation checks.
 * Fixed SSH key generation prompt handling when running through `curl | bash`.
 * Added Sober Roblox launcher as a default Flatpak app.
 * Added Flatpak games category.

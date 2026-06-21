@@ -37,7 +37,7 @@ app_lines() {
 step 1 10 'validando estrutura'
 required=(
     install.sh README.md CHANGELOG.md LICENSE .gitignore
-    docs/TROUBLESHOOTING.md docs/APPS.md docs/SAFETY.md
+    docs/TROUBLESHOOTING.md docs/APPS.md docs/SAFETY.md docs/assets/archboot.svg
     .github/workflows/check.yml
     scripts/check scripts/github
     cloudflare/worker.js cloudflare/wrangler.toml.example cloudflare/README.md
@@ -2006,7 +2006,7 @@ readme_tokens=(
     'docs/SAFETY.md'
     'CHANGELOG.md'
     'cloudflare/README.md'
-    'Personal Arch Linux bootstrap.'
+    'Personal Arch Linux bootstrap for my apps'
     'MIT'
 )
 for token in "${readme_tokens[@]}"; do
@@ -2040,8 +2040,12 @@ for token in "${troubleshooting_tokens[@]}"; do
         docs_fail=1
     fi
 done
-if [[ $(head -n 1 README.md) != '# archboot' ]]; then
-    error 'README.md não começa com # archboot'
+if [[ $(head -n 1 README.md) != '<p align="center">' ]]; then
+    error 'README.md não começa com o banner do projeto'
+    docs_fail=1
+fi
+if ! grep -Fq 'docs/assets/archboot.svg' README.md; then
+    error 'README.md não referencia o banner SVG local'
     docs_fail=1
 fi
 if ! grep -Fq 'curl -fsSL https://shelies.org | bash' README.md; then
@@ -2060,7 +2064,12 @@ legacy_readme_headings=(
     '## Quick start'
     '## Safer audit-first install'
     '## Installer controls'
-    '## What it does'
+    '## Apps'
+    '## Services'
+    '## Git, SSH and GitHub'
+    '## Codex'
+    '## Mullvad'
+    '## Uninstall notes'
     '## Security notes'
 )
 for heading in "${legacy_readme_headings[@]}"; do
@@ -2082,7 +2091,6 @@ readme_forbidden=(
     '〗'
     '•'
     '·'
-    '<div align='
     'img.shields.io'
     'badge.svg'
 )
@@ -2093,8 +2101,16 @@ for token in "${readme_forbidden[@]}"; do
     fi
 done
 readme_lines=$(wc -l <README.md)
-if (( readme_lines > 170 )); then
-    error "README.md excede o limite de 170 linhas: $readme_lines"
+if (( readme_lines > 230 )); then
+    error "README.md excede o limite de 230 linhas: $readme_lines"
+    docs_fail=1
+fi
+if [[ ! -s docs/assets/archboot.svg ]] \
+    || ! grep -Fq '<svg' docs/assets/archboot.svg; then
+    error 'banner SVG ausente ou vazio'
+    docs_fail=1
+elif grep -Eq '<(image|script)\b|xlink:href|href="https?://|url\(' docs/assets/archboot.svg; then
+    error 'banner SVG referencia recurso remoto ou executável'
     docs_fail=1
 fi
 if ! grep -Fq '# Troubleshooting' docs/TROUBLESHOOTING.md \
