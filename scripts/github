@@ -41,13 +41,13 @@ ok 'branch main selecionada'
 git status --short
 
 step 4 6 'configurando publicação'
-prompt repo 'nome do repositório' archboot
+prompt repo 'nome do repositório' leanin
 while true; do
     prompt visibility 'visibilidade (public/private)' public
     [[ $visibility == public || $visibility == private ]] && break
     error 'use public ou private'
 done
-prompt description 'descrição' 'Bootstrap modular e auditável para Arch Linux'
+prompt description 'descrição' 'Personal Arch Linux bootstrap.'
 owner=$(gh api user --jq .login)
 [[ -n $owner && -n $repo ]] || die 'owner ou nome do repositório vazio'
 info "destino: $owner/$repo ($visibility)"
@@ -62,7 +62,7 @@ if yesno 'Mostrar diff staged antes do commit?' n; then
     git diff --cached
 fi
 if ! git diff --cached --quiet; then
-    git commit -m 'feat: add arch bootstrap installer'
+        git commit -m 'feat: add leanin bootstrap installer'
     ok 'commit criado'
 else
     info 'nenhuma alteração nova para commit'

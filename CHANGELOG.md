@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* Renamed the project to leanin.
+* Made `LEANIN_*` variables primary and kept `ARCHBOOT_*` compatibility aliases.
+* Moved new logs to `~/.local/state/leanin/logs` without removing old logs.
 * Polished runtime output with clearer stage names, summaries, and diagnostics.
 * Improved doctor, plan, and dry-run formatting.
 * Added output regression checks.
@@ -40,7 +43,7 @@
 
 * Release tag aligned with the current published state.
 * Kept the published v0.1.0 tag intact without rewriting history.
-* Includes CI, installer control flags, plan/version modes, `ARCHBOOT_CI`, updated documentation and public checks through `shelies.org`.
+* Includes CI, installer control flags, plan/version modes, `LEANIN_CI`, updated documentation and public checks through `shelies.org`.
 
 ## 0.1.0
 

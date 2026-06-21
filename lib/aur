@@ -41,7 +41,7 @@ bootstrap_paru() {
     }
     if (( DRY_RUN )); then
         printf '> [dry-run] instalaria o AUR helper paru\n'
-        dry_run_msg git clone https://aur.archlinux.org/paru.git /tmp/archboot-paru
+        dry_run_msg git clone https://aur.archlinux.org/paru.git /tmp/leanin-paru
         dry_run_msg makepkg -si --noconfirm
         AUR_HELPER=paru
         return 0

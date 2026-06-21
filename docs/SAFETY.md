@@ -1,6 +1,6 @@
 # Safety notes
 
-`archboot` is designed for a personal machine, but it keeps the risky parts explicit.
+`leanin` is designed for a personal machine, but it keeps the risky parts explicit.
 
 ## Modes
 
@@ -11,7 +11,9 @@
 | `--dry-run` | Shows mutable actions without running them |
 | `--yes` | Uses safe defaults; it does not force replacements |
 
-`ARCHBOOT_CI=1` only permits safe modes.
+`LEANIN_CI=1` only permits safe modes. `ARCHBOOT_CI=1` remains a temporary compatibility alias.
+
+`LEANIN_REPO`, `LEANIN_BRANCH`, and `LEANIN_CI` are the primary override variables. The matching `ARCHBOOT_*` names remain supported as temporary fallbacks; when both are present, the `LEANIN_*` value wins.
 
 ## Existing state
 
@@ -27,4 +29,4 @@ The installer never removes packages, clears the pacman lock or enables a missin
 
 The short domain serves `install.sh`; the script then downloads the repository tarball from GitHub into a temporary directory and validates its layout before continuing. The repository/branch override inputs are restricted to safe GitHub HTTPS values.
 
-Real runs log to `~/.local/state/archboot/logs` with restrictive permissions. Common token patterns and private-key blocks are redacted, but inspect logs before sharing them.
+Real runs log to `~/.local/state/leanin/logs` with restrictive permissions. Existing `~/.local/state/archboot/logs` files are not migrated or removed. Common token patterns and private-key blocks are redacted, but inspect logs before sharing them.

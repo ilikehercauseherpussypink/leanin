@@ -37,7 +37,7 @@ app_lines() {
 step 1 10 'validando estrutura'
 required=(
     install.sh README.md CHANGELOG.md LICENSE .gitignore
-    docs/TROUBLESHOOTING.md docs/APPS.md docs/SAFETY.md docs/assets/archboot.svg
+    docs/TROUBLESHOOTING.md docs/APPS.md docs/SAFETY.md docs/assets/leanin.svg
     .github/workflows/check.yml
     scripts/check scripts/github
     cloudflare/worker.js cloudflare/wrangler.toml.example cloudflare/README.md
@@ -83,7 +83,7 @@ for file in apps/flatpak/*; do
             error "$file contém @openai/codex"
             ((failures += 1))
         elif [[ ! $app =~ $flatpak_pattern ]]; then
-            if ! grep -Fq "$app # archboot: allow-simple" "$file"; then
+            if ! grep -Fq "$app # leanin: allow-simple" "$file"; then
                 error "$file contém ID Flatpak improvável: $app"
                 ((failures += 1))
             fi
@@ -127,7 +127,7 @@ if bash -c '
     set -Eeuo pipefail
     source lib/log
     source lib/apps
-    ARCHBOOT_ROOT=$1
+    LEANIN_ROOT=$1
     LOG_FILE=/dev/null
     read_pacman
     [[ ${#PACMAN_APPS[@]} == 11 ]]
@@ -205,11 +205,29 @@ if grep -En 'git[[:space:]]+(diff|status)' install.sh >/dev/null 2>&1; then
 else
     ok 'install.sh não imprime diff/status'
 fi
-bootstrap_repo_default="ARCHBOOT_REPO=\${ARCHBOOT_REPO-https://github.com/ilikehercauseherpussypink/archboot}"
-if grep -Fq "$bootstrap_repo_default" install.sh; then
+# Os padrões abaixo verificam texto-fonte literal, sem expansão nesta execução.
+# shellcheck disable=SC2016
+if grep -Fq 'LEANIN_REPO=https://github.com/ilikehercauseherpussypink/leanin' install.sh \
+    && grep -Fq 'LEANIN_BRANCH=main' install.sh \
+    && grep -Fq 'CI_MODE=${LEANIN_CI:-${ARCHBOOT_CI:-0}}' install.sh; then
     ok 'bootstrap remoto aponta para o repositório publicado'
 else
-    error 'default ARCHBOOT_REPO não aponta para ilikehercauseherpussypink/archboot'
+    error 'default LEANIN_REPO não aponta para ilikehercauseherpussypink/leanin'
+    ((failures += 1))
+fi
+if [[ $(rg -o 'LEANIN_' install.sh lib | wc -l) -gt $(rg -o 'ARCHBOOT_' install.sh lib | wc -l) ]]; then
+    ok 'LEANIN_* é primário e ARCHBOOT_* permanece apenas como compatibilidade'
+else
+    error 'ARCHBOOT_* ainda domina as variáveis internas'
+    ((failures += 1))
+fi
+# Os padrões abaixo verificam texto-fonte literal, sem expansão nesta execução.
+# shellcheck disable=SC2016
+if grep -Fq 'LEANIN_STATE_DIR="$state_home/leanin"' lib/env \
+    && grep -Fq 'LEANIN_LOG_DIR="$LEANIN_STATE_DIR/logs"' lib/env; then
+    ok 'estado e logs usam ~/.local/state/leanin'
+else
+    error 'estado ou logs não usam o caminho leanin'
     ((failures += 1))
 fi
 unsafe_eval=$(printf '%s%s' 'eval' '[[:space:]]')
@@ -286,8 +304,8 @@ bootstrap_tokens=(
     'temp_dir=$(mktemp -d)'
     '[[ ! -s $archive ]]'
     'trap cleanup_bootstrap EXIT'
-    'validate_bootstrap_repo "$ARCHBOOT_REPO"'
-    'validate_bootstrap_branch "$ARCHBOOT_BRANCH"'
+    'validate_bootstrap_repo "$LEANIN_REPO"'
+    'validate_bootstrap_branch "$LEANIN_BRANCH"'
     'curl -fsSL --retry 3 --connect-timeout 10 --max-time 120'
     'tar -tzf "$archive"'
     'tar -xzf "$archive" --no-same-owner --no-same-permissions'
@@ -336,21 +354,21 @@ destination=''
 if [[ $1 == -tzf ]]; then
     case $BOOTSTRAP_MODE in
         incomplete)
-            printf 'archboot-main/\narchboot-main/install.sh\n'
+            printf 'leanin-main/\nleanin-main/install.sh\n'
             ;;
         multiple)
             printf '%s\n' \
-                'archboot-main/install.sh' 'archboot-main/lib/' 'archboot-main/apps/' 'archboot-main/services/' \
+                'leanin-main/install.sh' 'leanin-main/lib/' 'leanin-main/apps/' 'leanin-main/services/' \
                 'other/install.sh' 'other/lib/' 'other/apps/' 'other/services/'
             ;;
         traversal)
             printf '../outside/install.sh\n'
             ;;
         outside)
-            printf '%s\n' 'archboot-main/install.sh' 'archboot-main/lib/' 'archboot-main/apps/' 'archboot-main/services/'
+            printf '%s\n' 'leanin-main/install.sh' 'leanin-main/lib/' 'leanin-main/apps/' 'leanin-main/services/'
             ;;
         valid)
-            printf '%s\n' 'archboot-main/install.sh' 'archboot-main/lib/' 'archboot-main/apps/' 'archboot-main/services/'
+            printf '%s\n' 'leanin-main/install.sh' 'leanin-main/lib/' 'leanin-main/apps/' 'leanin-main/services/'
             ;;
         *) exit 2 ;;
     esac
@@ -368,15 +386,15 @@ done
 mkdir -p "$destination"
 if [[ $BOOTSTRAP_MODE == outside ]]; then
     mkdir -p "$BOOTSTRAP_OUTSIDE"
-    ln -s "$BOOTSTRAP_OUTSIDE" "$destination/archboot-main"
+    ln -s "$BOOTSTRAP_OUTSIDE" "$destination/leanin-main"
     exit 0
 fi
-mkdir -p "$destination/archboot-main"
+mkdir -p "$destination/leanin-main"
 printf '#!/usr/bin/env bash\nprintf "mock project loaded\\n"\n' \
-    >"$destination/archboot-main/install.sh"
+    >"$destination/leanin-main/install.sh"
 if [[ $BOOTSTRAP_MODE == valid ]]; then
-    mkdir -p "$destination/archboot-main/lib" \
-        "$destination/archboot-main/apps" "$destination/archboot-main/services"
+    mkdir -p "$destination/leanin-main/lib" \
+        "$destination/leanin-main/apps" "$destination/leanin-main/services"
 fi
 EOF
 chmod +x "$bootstrap_bin/mktemp" "$bootstrap_bin/curl" "$bootstrap_bin/tar"
@@ -522,11 +540,11 @@ for invalid_repo in '' \
     'https://github.com/owner/repo|cat' \
     "https://github.com/owner/\$repo" \
     'https://github.com/owner/repo/extra'; do
-    if ARCHBOOT_REPO=$invalid_repo BOOTSTRAP_MODE=valid \
+    if LEANIN_REPO=$invalid_repo BOOTSTRAP_MODE=valid \
         BOOTSTRAP_TEMP="$ssh_test_home/bootstrap-invalid-repo" \
         CURL_ARGS_FILE="$ssh_test_home/curl-invalid-repo.args" PATH="$bootstrap_bin:$PATH" \
         bash -s -- --plan <install.sh >/dev/null 2>&1; then
-        error "bootstrap aceitou ARCHBOOT_REPO inválido: $invalid_repo"
+        error "bootstrap aceitou LEANIN_REPO inválido: $invalid_repo"
         ((failures += 1))
         invalid_bootstrap_env=1
     fi
@@ -534,16 +552,32 @@ done
 
 for invalid_branch in '' 'bad branch' '../main' 'feature/../main' 'main..old' \
     'main;echo' 'main|cat' "main\$branch" 'feature//test'; do
-    if ARCHBOOT_BRANCH=$invalid_branch BOOTSTRAP_MODE=valid \
+    if LEANIN_BRANCH=$invalid_branch BOOTSTRAP_MODE=valid \
         BOOTSTRAP_TEMP="$ssh_test_home/bootstrap-invalid-branch" \
         CURL_ARGS_FILE="$ssh_test_home/curl-invalid-branch.args" PATH="$bootstrap_bin:$PATH" \
         bash -s -- --plan <install.sh >/dev/null 2>&1; then
-        error "bootstrap aceitou ARCHBOOT_BRANCH inválida: ${invalid_branch:-<vazia>}"
+        error "bootstrap aceitou LEANIN_BRANCH inválida: ${invalid_branch:-<vazia>}"
         ((failures += 1))
         invalid_bootstrap_env=1
     fi
 done
 (( invalid_bootstrap_env )) || ok 'bootstrap rejeita repositórios e branches inválidos'
+
+legacy_repo_dir="$ssh_test_home/bootstrap-legacy-repo"
+if legacy_repo_output=$(ARCHBOOT_REPO=https://github.com/owner/repo BOOTSTRAP_TEMP="$legacy_repo_dir" \
+    BOOTSTRAP_MODE=valid CURL_ARGS_FILE="$ssh_test_home/curl-legacy-repo.args" PATH="$bootstrap_bin:$PATH" \
+    bash -s -- --plan <install.sh 2>&1) \
+    && grep -Fq 'mock project loaded' <<<"$legacy_repo_output" \
+    && [[ ! -e $legacy_repo_dir ]] \
+    && ! LEANIN_REPO=https://example.com/invalid ARCHBOOT_REPO=https://github.com/owner/repo \
+        BOOTSTRAP_TEMP="$ssh_test_home/bootstrap-primary-repo" BOOTSTRAP_MODE=valid \
+        CURL_ARGS_FILE="$ssh_test_home/curl-primary-repo.args" PATH="$bootstrap_bin:$PATH" \
+        bash -s -- --plan <install.sh >/dev/null 2>&1; then
+    ok 'LEANIN_REPO tem precedência e ARCHBOOT_REPO permanece compatível'
+else
+    error 'precedência ou compatibilidade de LEANIN_REPO falhou'
+    ((failures += 1))
+fi
 
 missing_tool_bin="$ssh_test_home/missing-tool-bin"
 mkdir -p "$missing_tool_bin"
@@ -633,11 +667,12 @@ if HOME="$ssh_test_home" XDG_STATE_HOME="$state_home" bash -c '
     source lib/log
     source lib/env
     state
-    [[ $(stat -c %a "$ARCHBOOT_STATE_DIR") == 700 ]]
-    [[ $(stat -c %a "$ARCHBOOT_LOG_DIR") == 700 ]]
+    [[ $LEANIN_STATE_DIR == "$XDG_STATE_HOME/leanin" ]]
+    [[ $(stat -c %a "$LEANIN_STATE_DIR") == 700 ]]
+    [[ $(stat -c %a "$LEANIN_LOG_DIR") == 700 ]]
     [[ $(stat -c %a "$LOG_FILE") == 600 ]]
 '; then
-    ok 'diretórios e arquivos de log usam permissões restritas'
+    ok 'logs do leanin usam caminho e permissões restritas'
 else
     error 'permissões de logs não são 700/600'
     ((failures += 1))
@@ -728,8 +763,8 @@ step 5 10 'validando controles do instalador'
 controls_fail=0
 if version_output=$(bash install.sh --version 2>&1) \
     && piped_version_output=$(set -o pipefail; sed -n p install.sh | bash -s -- --version) \
-    && [[ $version_output == 'archboot 0.1.1' ]] \
-    && [[ $piped_version_output == 'archboot 0.1.1' ]] \
+    && [[ $version_output == 'leanin 0.1.1' ]] \
+    && [[ $piped_version_output == 'leanin 0.1.1' ]] \
     && grep -Fq '## v0.1.1' CHANGELOG.md; then
     ok 'versão 0.1.1 consistente'
 else
@@ -770,7 +805,7 @@ else
 fi
 
 if plan_output=$(bash install.sh --plan 2>&1) \
-    && grep -Fq 'archboot 0.1.1' <<<"$plan_output" \
+    && grep -Fq 'leanin 0.1.1' <<<"$plan_output" \
     && grep -Fq '> [ok] pacman: 11 pacotes' <<<"$plan_output" \
     && grep -Fq '> [ok] Flatpak: 6 apps' <<<"$plan_output" \
     && grep -Fq '> [ok] AUR: 3 pacotes' <<<"$plan_output" \
@@ -808,7 +843,7 @@ else
     controls_fail=1
 fi
 
-if no_flatpak_output=$(ARCHBOOT_CI=1 bash install.sh --dry-run --no-flatpak --no-ssh --no-github 2>&1) \
+if no_flatpak_output=$(LEANIN_CI=1 bash install.sh --dry-run --no-flatpak --no-ssh --no-github 2>&1) \
     && grep -Fq '[skip] Flatpak desativado por flag' <<<"$no_flatpak_output" \
     && ! grep -Fq 'org.vinegarhq.Sober' <<<"$no_flatpak_output"; then
     ok '--no-flatpak não processa Sober'
@@ -817,7 +852,7 @@ else
     controls_fail=1
 fi
 
-if no_packages_output=$(ARCHBOOT_CI=1 bash install.sh --dry-run --no-packages --no-ssh --no-github 2>&1) \
+if no_packages_output=$(LEANIN_CI=1 bash install.sh --dry-run --no-packages --no-ssh --no-github 2>&1) \
     && grep -Fq '[skip] Flatpak desativado por flag' <<<"$no_packages_output" \
     && ! grep -Fq 'org.vinegarhq.Sober' <<<"$no_packages_output"; then
     ok '--no-packages não processa Sober'
@@ -858,15 +893,23 @@ else
     skip '--doctor local requer host Arch; validação portátil será usada'
 fi
 
-if ci_doctor_output=$(ARCHBOOT_CI=1 bash install.sh --doctor 2>&1) \
+if ci_doctor_output=$(LEANIN_CI=1 bash install.sh --doctor 2>&1) \
     && grep -Fq $'doctor\n\nsistema' <<<"$ci_doctor_output" \
     && grep -Fq '[info] modo CI: diagnóstico do host pulado' <<<"$ci_doctor_output" \
     && grep -Fq '[ok] lista services/system disponível' <<<"$ci_doctor_output" \
     && grep -Fq '[ok] diagnóstico concluído' <<<"$ci_doctor_output" \
     && ! grep -Fq '[ask]' <<<"$ci_doctor_output"; then
-    ok 'ARCHBOOT_CI=1 aceita --doctor'
+    ok 'LEANIN_CI=1 aceita --doctor'
 else
-    error 'ARCHBOOT_CI=1 --doctor falhou'
+    error 'LEANIN_CI=1 --doctor falhou'
+    controls_fail=1
+fi
+if legacy_ci_output=$(ARCHBOOT_CI=1 bash install.sh --doctor 2>&1) \
+    && grep -Fq '[info] modo CI: diagnóstico do host pulado' <<<"$legacy_ci_output" \
+    && grep -Fq '[ok] diagnóstico concluído' <<<"$legacy_ci_output"; then
+    ok 'ARCHBOOT_CI=1 permanece como alias de compatibilidade'
+else
+    error 'ARCHBOOT_CI=1 não preservou compatibilidade'
     controls_fail=1
 fi
 
@@ -878,11 +921,11 @@ else
     ok '--doctor não contém comandos de instalação, cadastro ou ativação'
 fi
 
-if ci_plan_output=$(ARCHBOOT_CI=1 bash install.sh --plan 2>&1) \
+if ci_plan_output=$(LEANIN_CI=1 bash install.sh --plan 2>&1) \
     && grep -Fq 'pacman: 11 pacotes' <<<"$ci_plan_output"; then
-    ok 'ARCHBOOT_CI=1 aceita --plan'
+    ok 'LEANIN_CI=1 aceita --plan'
 else
-    error 'ARCHBOOT_CI=1 --plan falhou'
+    error 'LEANIN_CI=1 --plan falhou'
     controls_fail=1
 fi
 
@@ -908,7 +951,7 @@ done
 ci_args=(
     --dry-run --no-packages --no-services --no-ssh --no-github --no-codex
 )
-if ci_dry_output=$(ARCHBOOT_CI=1 bash install.sh "${ci_args[@]}" 2>&1) \
+if ci_dry_output=$(LEANIN_CI=1 bash install.sh "${ci_args[@]}" 2>&1) \
     && grep -Fq '[ok] modo CI dry-run' <<<"$ci_dry_output" \
     && grep -Fq '[skip] pacman desativado por flag' <<<"$ci_dry_output" \
     && grep -Fq '[skip] Flatpak desativado por flag' <<<"$ci_dry_output" \
@@ -928,7 +971,7 @@ else
 fi
 
 layout_args=(--dry-run --no-packages --no-services --no-codex --no-git --no-ssh --no-github)
-if layout_output=$(ARCHBOOT_CI=1 bash install.sh "${layout_args[@]}" 2>&1) \
+if layout_output=$(LEANIN_CI=1 bash install.sh "${layout_args[@]}" 2>&1) \
     && grep -Fq '> Etapa 1/3: sistema' <<<"$layout_output" \
     && grep -Fq '> Etapa 2/3: plano' <<<"$layout_output" \
     && grep -Fq '> Etapa 3/3: resumo' <<<"$layout_output" \
@@ -942,7 +985,7 @@ else
     controls_fail=1
 fi
 
-if default_dry_output=$(ARCHBOOT_CI=1 bash install.sh --dry-run --no-ssh --no-github 2>&1) \
+if default_dry_output=$(LEANIN_CI=1 bash install.sh --dry-run --no-ssh --no-github 2>&1) \
     && grep -Fq '> Etapa 10/10: resumo' <<<"$default_dry_output" \
     && grep -Fq '> [ok] concluído' <<<"$default_dry_output"; then
     ok 'dry-run sem flags de fonte conclui todas as etapas ativas'
@@ -951,7 +994,7 @@ else
     controls_fail=1
 fi
 
-if output_quality=$(ARCHBOOT_CI=1 bash install.sh --dry-run --no-ssh --no-github 2>&1) \
+if output_quality=$(LEANIN_CI=1 bash install.sh --dry-run --no-ssh --no-github 2>&1) \
     && grep -Fq '> [dry-run]' <<<"$output_quality" \
     && grep -Fq $'pacotes\n> [info]' <<<"$output_quality" \
     && grep -Fq $'configuração\n> [info]' <<<"$output_quality" \
@@ -974,7 +1017,7 @@ else
     ok 'fluxo não contém etapa final vazia'
 fi
 
-if plan_log_output=$(ARCHBOOT_CI=1 bash install.sh --plan 2>&1) \
+if plan_log_output=$(LEANIN_CI=1 bash install.sh --plan 2>&1) \
     && ! grep -Fq 'log criado:' <<<"$plan_log_output"; then
     ok '--plan não cria nem anuncia log de execução'
 else
@@ -983,7 +1026,7 @@ else
 fi
 
 yes_args=(--dry-run --yes --no-packages --no-services --no-ssh --no-github --no-codex --no-git)
-if yes_output=$(ARCHBOOT_CI=1 bash install.sh "${yes_args[@]}" 2>&1) \
+if yes_output=$(LEANIN_CI=1 bash install.sh "${yes_args[@]}" 2>&1) \
     && ! grep -Fq '[ask]' <<<"$yes_output" \
     && grep -Fq '[skip] SSH desativado por flag' <<<"$yes_output"; then
     ok '--yes combinado com --no-* não bloqueia nem executa ações desativadas'
@@ -993,7 +1036,7 @@ else
 fi
 
 no_ssh_args=(--dry-run --no-packages --no-services --no-ssh --no-codex)
-if no_ssh_output=$(ARCHBOOT_CI=1 bash install.sh "${no_ssh_args[@]}" 2>&1) \
+if no_ssh_output=$(LEANIN_CI=1 bash install.sh "${no_ssh_args[@]}" 2>&1) \
     && grep -Fq '[skip] SSH desativado por flag' <<<"$no_ssh_output" \
     && grep -Fq '[skip] GitHub desativado por flag' <<<"$no_ssh_output" \
     && grep -Fq 'GitHub SSH: desativado por flag' <<<"$no_ssh_output"; then
@@ -1003,17 +1046,17 @@ else
     controls_fail=1
 fi
 
-if ARCHBOOT_CI=1 bash install.sh >/dev/null 2>&1; then
-    error 'ARCHBOOT_CI=1 permitiu execução sem --dry-run/--plan'
+if LEANIN_CI=1 bash install.sh >/dev/null 2>&1; then
+    error 'LEANIN_CI=1 permitiu execução sem --dry-run/--plan'
     controls_fail=1
 else
-    ok 'ARCHBOOT_CI=1 bloqueia execução mutável'
+    ok 'LEANIN_CI=1 bloqueia execução mutável'
 fi
-if ARCHBOOT_CI=invalid bash install.sh --plan >/dev/null 2>&1; then
-    error 'ARCHBOOT_CI inválido foi aceito'
+if LEANIN_CI=invalid bash install.sh --plan >/dev/null 2>&1; then
+    error 'LEANIN_CI inválido foi aceito'
     controls_fail=1
 else
-    ok 'ARCHBOOT_CI inválido falha de forma explícita'
+    ok 'LEANIN_CI inválido falha de forma explícita'
 fi
 
 # A expressão é intencionalmente literal para validar o código-fonte.
@@ -1135,7 +1178,7 @@ else
     controls_fail=1
 fi
 
-if pipe_dry_output=$(printf '\n' | timeout 15 env ARCHBOOT_CI=1 bash install.sh --dry-run \
+if pipe_dry_output=$(printf '\n' | timeout 15 env LEANIN_CI=1 bash install.sh --dry-run \
     --no-packages --no-services --no-codex --no-git --no-ssh --no-github 2>&1) \
     && ! grep -Fq '> [?]' <<<"$pipe_dry_output"; then
     ok 'stdin em pipe não trava o dry-run'
@@ -1145,7 +1188,7 @@ else
 fi
 
 doctor_home="$ssh_test_home/doctor-home"
-if HOME="$doctor_home" ARCHBOOT_ROOT="$ROOT" CI_MODE=1 bash -c '
+if HOME="$doctor_home" LEANIN_ROOT="$ROOT" CI_MODE=1 bash -c '
     set -Eeuo pipefail
     source lib/log
     source lib/env
@@ -2024,6 +2067,7 @@ fi
 step 6 10 'validando documentação'
 docs_fail=0
 readme_tokens=(
+    'leanin'
     'https://shelies.org'
     'curl -fsSL https://shelies.org | bash'
     '--doctor'
@@ -2050,6 +2094,7 @@ done
 cloudflare_readme_tokens=(
     'https://shelies.org'
     'https://archboot.jocaluvero.workers.dev'
+    'https://github.com/ilikehercauseherpussypink/leanin'
 )
 for token in "${cloudflare_readme_tokens[@]}"; do
     if ! grep -Fq "$token" cloudflare/README.md; then
@@ -2063,7 +2108,7 @@ troubleshooting_tokens=(
     'Pacman lock'
     'gh auth status'
     'ssh -T git@github.com'
-    'tail -n 120 ~/.local/state/archboot/logs/FILE.log'
+    'tail -n 120 ~/.local/state/leanin/logs/FILE.log'
     'safe default'
 )
 for token in "${troubleshooting_tokens[@]}"; do
@@ -2076,8 +2121,17 @@ if [[ $(head -n 1 README.md) != '<p align="center">' ]]; then
     error 'README.md não começa com o banner do projeto'
     docs_fail=1
 fi
-if ! grep -Fq 'docs/assets/archboot.svg' README.md; then
+if ! grep -Fq 'docs/assets/leanin.svg' README.md; then
     error 'README.md não referencia o banner SVG local'
+    docs_fail=1
+fi
+if grep -Fq 'archboot' README.md; then
+    error 'README.md contém branding antigo'
+    docs_fail=1
+fi
+if rg -n 'github\.com/ilikehercauseherpussypink/archboot|/home/pc/archboot|docs/assets/archboot\.svg' \
+    README.md docs cloudflare CHANGELOG.md >/dev/null 2>&1; then
+    error 'documentação contém referência antiga ao repositório, caminho ou asset'
     docs_fail=1
 fi
 if ! grep -Fq 'curl -fsSL https://shelies.org | bash' README.md; then
@@ -2140,11 +2194,14 @@ if (( readme_lines > 230 )); then
     error "README.md excede o limite de 230 linhas: $readme_lines"
     docs_fail=1
 fi
-if [[ ! -s docs/assets/archboot.svg ]] \
-    || ! grep -Fq '<svg' docs/assets/archboot.svg; then
+if [[ -e docs/assets/archboot.svg ]]; then
+    error 'banner SVG antigo ainda existe'
+    docs_fail=1
+elif [[ ! -s docs/assets/leanin.svg ]] \
+    || ! grep -Fq '<svg' docs/assets/leanin.svg; then
     error 'banner SVG ausente ou vazio'
     docs_fail=1
-elif grep -Eq '<(image|script)\b|xlink:href|href="https?://|url\(' docs/assets/archboot.svg; then
+elif grep -Eq '<(image|script)\b|xlink:href|href="https?://|url\(' docs/assets/leanin.svg; then
     error 'banner SVG referencia recurso remoto ou executável'
     docs_fail=1
 fi
@@ -2204,8 +2261,8 @@ workflow_tokens=(
     'actions/checkout@v6'
     'actions/setup-node@v6'
     'bash scripts/check'
-    'ARCHBOOT_CI=1 bash install.sh --doctor'
-    'ARCHBOOT_CI=1 bash install.sh --dry-run --no-packages'
+    'LEANIN_CI=1 bash install.sh --doctor'
+    'LEANIN_CI=1 bash install.sh --dry-run --no-packages'
     'node --check cloudflare/worker.js'
 )
 for token in "${workflow_tokens[@]}"; do
@@ -2238,7 +2295,7 @@ worker_tokens=(
     'env.REPO'
     'env.BRANCH'
     'OWNER: "ilikehercauseherpussypink"'
-    'REPO: "archboot"'
+    'REPO: "leanin"'
     'BRANCH: "main"'
 )
 for token in "${worker_tokens[@]}"; do
@@ -2299,7 +2356,7 @@ const { default: worker } = await import(pathToFileURL(process.argv[2]).href);
 const calls = [];
 globalThis.fetch = async (url, init) => {
   calls.push({ url: String(url), method: init.method });
-  return new Response("#!/usr/bin/env bash\necho archboot\n", { status: 200 });
+  return new Response("#!/usr/bin/env bash\necho leanin\n", { status: 200 });
 };
 const assert = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -2322,7 +2379,7 @@ assert(response.status === 200, "GET upstream status");
 assert(response.headers.get("Content-Type") === "text/x-shellscript; charset=utf-8", "script content type");
 assert(response.headers.get("X-Content-Type-Options") === "nosniff", "nosniff header");
 assert((await response.text()).startsWith("#!/usr/bin/env bash"), "GET upstream body");
-assert(calls.at(-1).url === "https://raw.githubusercontent.com/ilikehercauseherpussypink/archboot/main/install.sh", "upstream URL");
+assert(calls.at(-1).url === "https://raw.githubusercontent.com/ilikehercauseherpussypink/leanin/main/install.sh", "upstream URL");
 assert(calls.at(-1).method === "GET", "GET upstream method");
 
 response = await worker.fetch(new Request("https://worker.example/", { method: "HEAD" }), {});

@@ -85,7 +85,7 @@ _read_app_file() {
 
 read_source_apps() {
     local source=$1 file
-    local directory="$ARCHBOOT_ROOT/apps/$source"
+    local directory="$LEANIN_ROOT/apps/$source"
     local -a files=()
     # Recebe entradas de pacman por nameref; a classificação ocorre no parser.
     # shellcheck disable=SC2034

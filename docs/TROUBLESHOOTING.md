@@ -14,11 +14,11 @@ bash install.sh --dry-run
 bash install.sh --plan --verbose
 ```
 
-When an existing setting could be replaced, archboot asks with `[s/N]`. Enter keeps the current state. Prompts use `/dev/tty`, including when the installer starts through `curl | bash`. Without a terminal, the safe default is to keep the current state.
+When an existing setting could be replaced, leanin asks with `[s/N]`. Enter keeps the current state. Prompts use `/dev/tty`, including when the installer starts through `curl | bash`. Without a terminal, the safe default is to keep the current state.
 
 ## Pacman lock
 
-archboot never removes `/var/lib/pacman/db.lck`. Close pacman, paru, yay, or another package manager first, then confirm what is running:
+leanin never removes `/var/lib/pacman/db.lck`. Close pacman, paru, yay, or another package manager first, then confirm what is running:
 
 ```bash
 ps -ef | grep -E '[p]acman|[p]aru|[y]ay'
@@ -71,7 +71,7 @@ Run Sober from a terminal when it does not open to see its output. Roblox or Sob
 command -v paru || command -v yay
 ```
 
-archboot prefers paru and accepts yay. If the paru bootstrap fails, verify `git` and `base-devel`, then read the log. It never runs `makepkg` as root.
+leanin prefers paru and accepts yay. If the paru bootstrap fails, verify `git` and `base-devel`, then read the log. It never runs `makepkg` as root.
 
 ## Mullvad conflict
 
@@ -114,11 +114,11 @@ The Worker serves `install.sh` from GitHub. A `502` usually means that the upstr
 
 ## Logs
 
-Every real run creates a log under `~/.local/state/archboot/logs`.
+Every real run creates a log under `~/.local/state/leanin/logs`. Existing archboot logs are left untouched.
 
 ```bash
-ls -1t ~/.local/state/archboot/logs | head
-tail -n 120 ~/.local/state/archboot/logs/FILE.log
+ls -1t ~/.local/state/leanin/logs | head
+tail -n 120 ~/.local/state/leanin/logs/FILE.log
 ```
 
 Use `--verbose` only when you need full command output in the terminal. Review a log before sharing it.

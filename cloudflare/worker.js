@@ -1,6 +1,6 @@
 const DEFAULTS = Object.freeze({
   OWNER: "ilikehercauseherpussypink",
-  REPO: "archboot",
+  REPO: "leanin",
   BRANCH: "main",
 });
 

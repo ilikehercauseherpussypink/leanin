@@ -11,7 +11,7 @@ _doctor_section() {
 
 _doctor_ci() {
     info 'modo CI: diagnóstico do host pulado'
-    if [[ -s $ARCHBOOT_ROOT/services/system ]]; then
+    if [[ -s $LEANIN_ROOT/services/system ]]; then
         ok 'lista services/system disponível'
     else
         _doctor_essential_failure 'services/system ausente ou vazio'
@@ -149,7 +149,7 @@ _doctor_github() {
 
 _doctor_services() {
     local service=mullvad-daemon.service
-    if [[ -s $ARCHBOOT_ROOT/services/system ]]; then
+    if [[ -s $LEANIN_ROOT/services/system ]]; then
         ok 'lista services/system disponível'
     else
         _doctor_essential_failure 'services/system ausente ou vazio'

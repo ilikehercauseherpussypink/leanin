@@ -36,14 +36,16 @@ net() {
 
 state() {
     local state_home=${XDG_STATE_HOME:-$HOME/.local/state}
-    ARCHBOOT_STATE_DIR="$state_home/archboot"
-    ARCHBOOT_LOG_DIR="$ARCHBOOT_STATE_DIR/logs"
-    mkdir -p "$ARCHBOOT_LOG_DIR"
-    chmod 700 "$ARCHBOOT_STATE_DIR" "$ARCHBOOT_LOG_DIR"
-    LOG_FILE="$ARCHBOOT_LOG_DIR/$(date '+%Y%m%d-%H%M%S')-$$.log"
+    LEANIN_STATE_DIR="$state_home/leanin"
+    LEANIN_LOG_DIR="$LEANIN_STATE_DIR/logs"
+    mkdir -p "$LEANIN_LOG_DIR"
+    chmod 700 "$LEANIN_STATE_DIR" "$LEANIN_LOG_DIR"
+    LOG_FILE="$LEANIN_LOG_DIR/$(date '+%Y%m%d-%H%M%S')-$$.log"
     : >"$LOG_FILE"
     chmod 600 "$LOG_FILE"
-    export ARCHBOOT_STATE_DIR ARCHBOOT_LOG_DIR LOG_FILE
+    ARCHBOOT_STATE_DIR=$LEANIN_STATE_DIR
+    ARCHBOOT_LOG_DIR=$LEANIN_LOG_DIR
+    export LEANIN_STATE_DIR LEANIN_LOG_DIR ARCHBOOT_STATE_DIR ARCHBOOT_LOG_DIR LOG_FILE
 }
 
 lock() {

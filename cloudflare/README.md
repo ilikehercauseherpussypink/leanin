@@ -4,16 +4,18 @@ The Worker serves `install.sh` from GitHub through a short domain. It does not m
 
 * Custom domain: `https://shelies.org`
 * Worker URL: `https://archboot.jocaluvero.workers.dev`
-* Upstream repository: `https://github.com/ilikehercauseherpussypink/archboot`
+* Upstream repository: `https://github.com/ilikehercauseherpussypink/leanin`
 
 The Worker has no secrets. `OWNER`, `REPO`, and `BRANCH` come from Worker variables or the defaults in `worker.js`. Query strings cannot change them.
+
+After a repository rename, deploy the updated Worker or change its `REPO` variable to `leanin`. Until then, an existing deployment can continue using its previous upstream setting.
 
 ## Endpoints
 
 ```bash
 curl -fsSL https://shelies.org/health
-curl -fsSL https://shelies.org -o /tmp/archboot-install.sh
-head -n 20 /tmp/archboot-install.sh
+curl -fsSL https://shelies.org -o /tmp/leanin-install.sh
+head -n 20 /tmp/leanin-install.sh
 curl -fsSL https://shelies.org | bash -s -- --dry-run
 curl -fsSL https://shelies.org | bash
 ```

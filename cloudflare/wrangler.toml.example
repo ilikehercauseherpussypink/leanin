@@ -1,15 +1,15 @@
-# Copie este arquivo para wrangler.toml.
-# Troque OWNER pelo seu usuario no GitHub.
-# Troque pattern pelo dominio curto real.
-# Este projeto nao usa segredos, mas nao commite wrangler.toml se adicionar dados sensiveis.
+# Copy this file to wrangler.toml.
+# Replace OWNER with your GitHub user.
+# Replace pattern with the real short domain.
+# This project uses no secrets, but do not commit wrangler.toml if you add sensitive data.
 
-name = "archboot"
+name = "leanin"
 main = "worker.js"
 compatibility_date = "2026-06-14"
 
 [vars]
 OWNER = "SEU_USER_GITHUB"
-REPO = "archboot"
+REPO = "leanin"
 BRANCH = "main"
 
 [[routes]]

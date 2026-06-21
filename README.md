@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/archboot.svg" alt="archboot" width="720">
+  <img src="docs/assets/leanin.svg" alt="leanin" width="720">
 </p>
 
 <p align="center">
@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ilikehercauseherpussypink/archboot/actions">CI</a> |
+  <a href="https://github.com/ilikehercauseherpussypink/leanin/actions">CI</a> |
   <a href="CHANGELOG.md">v0.1.1</a> |
   <a href="LICENSE">MIT</a>
 </p>
@@ -34,7 +34,7 @@ curl -fsSL https://shelies.org | bash -s -- --dry-run
 
 Fresh Arch installs are clean, but the setup work is repetitive.
 
-`archboot` turns my post-install routine into a guarded, repeatable bootstrap: packages, desktop apps, Flatpak, AUR, Codex, Git, SSH, GitHub keys, and selected services.
+`leanin` turns my post-install routine into a guarded, repeatable bootstrap: packages, desktop apps, Flatpak, AUR, Codex, Git, SSH, GitHub keys, and selected services.
 
 It is not a distro installer. It is not meant to be universal. It is my setup, automated carefully.
 
@@ -122,8 +122,8 @@ bash install.sh
 ## local development
 
 ```bash
-git clone https://github.com/ilikehercauseherpussypink/archboot
-cd archboot
+git clone https://github.com/ilikehercauseherpussypink/leanin
+cd leanin
 bash scripts/check
 bash install.sh --dry-run
 ```

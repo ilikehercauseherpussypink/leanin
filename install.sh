@@ -1,13 +1,31 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ARCHBOOT_VERSION='0.1.1'
-ARCHBOOT_REPO=${ARCHBOOT_REPO-https://github.com/ilikehercauseherpussypink/archboot}
-ARCHBOOT_BRANCH=${ARCHBOOT_BRANCH-main}
+LEANIN_VERSION='0.1.1'
+# LEANIN_* is primary. ARCHBOOT_* remains a temporary compatibility alias.
+if [[ -v LEANIN_REPO ]]; then
+    :
+elif [[ -v ARCHBOOT_REPO ]]; then
+    LEANIN_REPO=$ARCHBOOT_REPO
+else
+    LEANIN_REPO=https://github.com/ilikehercauseherpussypink/leanin
+fi
+if [[ -v LEANIN_BRANCH ]]; then
+    :
+elif [[ -v ARCHBOOT_BRANCH ]]; then
+    LEANIN_BRANCH=$ARCHBOOT_BRANCH
+else
+    LEANIN_BRANCH=main
+fi
+LEANIN_BOOTSTRAPPED=${LEANIN_BOOTSTRAPPED:-${ARCHBOOT_BOOTSTRAPPED:-0}}
+ARCHBOOT_VERSION=${ARCHBOOT_VERSION:-$LEANIN_VERSION}
+ARCHBOOT_REPO=${ARCHBOOT_REPO:-$LEANIN_REPO}
+ARCHBOOT_BRANCH=${ARCHBOOT_BRANCH:-$LEANIN_BRANCH}
+ARCHBOOT_BOOTSTRAPPED=${ARCHBOOT_BOOTSTRAPPED:-$LEANIN_BOOTSTRAPPED}
 
 initial_banner() {
     local plan_mode=${1:-0}
-    printf '\narchboot %s\n' "$ARCHBOOT_VERSION"
+    printf '\nleanin %s\n' "$LEANIN_VERSION"
     if (( plan_mode )); then
         printf '\n'
     else
@@ -35,7 +53,7 @@ if (( EARLY_VERSION )); then
     if [[ -z ${BASH_SOURCE[0]:-} && ! -t 0 ]]; then
         while IFS= read -r _; do :; done
     fi
-    printf 'archboot %s\n' "$ARCHBOOT_VERSION"
+        printf 'leanin %s\n' "$LEANIN_VERSION"
     exit 0
 fi
 
@@ -69,20 +87,21 @@ bootstrap_project() {
         [[ $script_dir == "$script_path" ]] && script_dir=.
         script_dir=$(cd -- "$script_dir" && pwd)
         if [[ -d $script_dir/lib && -d $script_dir/apps && -d $script_dir/services ]]; then
-            ARCHBOOT_ROOT=$script_dir
-            export ARCHBOOT_ROOT
+            LEANIN_ROOT=$script_dir
+            ARCHBOOT_ROOT=$LEANIN_ROOT
+            export LEANIN_ROOT ARCHBOOT_ROOT
             return 0
         fi
     fi
 
-    if [[ ${ARCHBOOT_BOOTSTRAPPED:-0} == 1 ]]; then
+    if [[ $LEANIN_BOOTSTRAPPED == 1 ]]; then
         bootstrap_fail 'bootstrap concluído, mas lib/, apps/ ou services/ não foram encontrados'
     fi
 
-    validate_bootstrap_repo "$ARCHBOOT_REPO" \
-        || bootstrap_fail 'ARCHBOOT_REPO inválido; use https://github.com/OWNER/REPO'
-    validate_bootstrap_branch "$ARCHBOOT_BRANCH" \
-        || bootstrap_fail 'ARCHBOOT_BRANCH inválida'
+    validate_bootstrap_repo "$LEANIN_REPO" \
+        || bootstrap_fail 'LEANIN_REPO inválido; use https://github.com/OWNER/REPO'
+    validate_bootstrap_branch "$LEANIN_BRANCH" \
+        || bootstrap_fail 'LEANIN_BRANCH inválida'
     command -v bash >/dev/null 2>&1 \
         || bootstrap_fail 'bash é necessário para executar o projeto completo'
     command -v curl >/dev/null 2>&1 \
@@ -92,9 +111,9 @@ bootstrap_project() {
     command -v mktemp >/dev/null 2>&1 \
         || bootstrap_fail 'mktemp é necessário para criar um diretório temporário seguro'
 
-    repo_url=${ARCHBOOT_REPO%/}
+    repo_url=${LEANIN_REPO%/}
     repo_url=${repo_url%.git}
-    archive_url="$repo_url/archive/refs/heads/$ARCHBOOT_BRANCH.tar.gz"
+    archive_url="$repo_url/archive/refs/heads/$LEANIN_BRANCH.tar.gz"
     if ! temp_dir=$(mktemp -d); then
         bootstrap_fail 'não foi possível criar diretório temporário seguro'
     fi
@@ -109,7 +128,7 @@ bootstrap_project() {
     if ! chmod 700 "$temp_dir"; then
         bootstrap_fail 'não foi possível proteger o diretório temporário'
     fi
-    archive="$temp_dir/archboot.tar.gz"
+    archive="$temp_dir/leanin.tar.gz"
     listing="$temp_dir/archive.list"
     extract_dir="$temp_dir/extract"
     (( EARLY_VERBOSE )) && printf '> [info] diretório temporário: %s\n' "$temp_dir"
@@ -170,57 +189,57 @@ bootstrap_project() {
 
     printf '> [ok] projeto carregado em diretório temporário\n'
     set +e
-    ARCHBOOT_BOOTSTRAPPED=1 \
-        ARCHBOOT_REPO="$ARCHBOOT_REPO" \
-        ARCHBOOT_BRANCH="$ARCHBOOT_BRANCH" \
+    LEANIN_BOOTSTRAPPED=1 \
+        LEANIN_REPO="$LEANIN_REPO" \
+        LEANIN_BRANCH="$LEANIN_BRANCH" \
         bash "$project_root/install.sh" "$@"
     local status=$?
     set -e
     exit "$status"
 }
 
-if [[ ${ARCHBOOT_BOOTSTRAPPED:-0} != 1 ]]; then
+if [[ $LEANIN_BOOTSTRAPPED != 1 ]]; then
     initial_banner "$EARLY_PLAN"
 fi
 bootstrap_project "$@"
 
 # shellcheck source=lib/log
-source "$ARCHBOOT_ROOT/lib/log"
+source "$LEANIN_ROOT/lib/log"
 # shellcheck source=lib/ask
-source "$ARCHBOOT_ROOT/lib/ask"
+source "$LEANIN_ROOT/lib/ask"
 # shellcheck source=lib/env
-source "$ARCHBOOT_ROOT/lib/env"
+source "$LEANIN_ROOT/lib/env"
 # shellcheck source=lib/doctor
-source "$ARCHBOOT_ROOT/lib/doctor"
+source "$LEANIN_ROOT/lib/doctor"
 # shellcheck source=lib/run
-source "$ARCHBOOT_ROOT/lib/run"
+source "$LEANIN_ROOT/lib/run"
 # shellcheck source=lib/apps
-source "$ARCHBOOT_ROOT/lib/apps"
+source "$LEANIN_ROOT/lib/apps"
 # shellcheck source=lib/service
-source "$ARCHBOOT_ROOT/lib/service"
+source "$LEANIN_ROOT/lib/service"
 # shellcheck source=lib/pkg
-source "$ARCHBOOT_ROOT/lib/pkg"
+source "$LEANIN_ROOT/lib/pkg"
 # shellcheck source=lib/flatpak
-source "$ARCHBOOT_ROOT/lib/flatpak"
+source "$LEANIN_ROOT/lib/flatpak"
 # shellcheck source=lib/aur
-source "$ARCHBOOT_ROOT/lib/aur"
+source "$LEANIN_ROOT/lib/aur"
 # shellcheck source=lib/codex
-source "$ARCHBOOT_ROOT/lib/codex"
+source "$LEANIN_ROOT/lib/codex"
 # shellcheck source=lib/git
-source "$ARCHBOOT_ROOT/lib/git"
+source "$LEANIN_ROOT/lib/git"
 # shellcheck source=lib/open
-source "$ARCHBOOT_ROOT/lib/open"
+source "$LEANIN_ROOT/lib/open"
 # shellcheck source=lib/ssh
-source "$ARCHBOOT_ROOT/lib/ssh"
+source "$LEANIN_ROOT/lib/ssh"
 # shellcheck source=lib/gh
-source "$ARCHBOOT_ROOT/lib/gh"
+source "$LEANIN_ROOT/lib/gh"
 
 VERBOSE=0
 DRY_RUN=0
 PLAN_ONLY=0
 DOCTOR_ONLY=0
 ASSUME_YES=0
-CI_MODE=${ARCHBOOT_CI:-0}
+CI_MODE=${LEANIN_CI:-${ARCHBOOT_CI:-0}}
 SKIP_PACMAN=0
 SKIP_FLATPAK=0
 SKIP_AUR=0
@@ -607,10 +626,10 @@ main() {
     collect_disabled_features
 
     if [[ $CI_MODE != 0 && $CI_MODE != 1 ]]; then
-        die 'ARCHBOOT_CI deve ser 0 ou 1'
+        die 'LEANIN_CI deve ser 0 ou 1'
     fi
     if [[ $CI_MODE == 1 && $DRY_RUN != 1 && $PLAN_ONLY != 1 && $DOCTOR_ONLY != 1 ]]; then
-        die 'ARCHBOOT_CI=1 exige --dry-run, --plan ou --doctor'
+        die 'LEANIN_CI=1 exige --dry-run, --plan ou --doctor'
     fi
     if (( DOCTOR_ONLY )); then
         doctor_run
@@ -632,7 +651,7 @@ main() {
     else
         arch || die 'este instalador suporta apenas Arch Linux'
         ok 'Arch Linux detectado'
-        root && die 'não execute o archboot como root'
+        root && die 'não execute o leanin como root'
         ok 'execução como usuário comum'
         sudo
         ok 'sudo disponível'

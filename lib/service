@@ -46,8 +46,8 @@ _read_service_file() {
 read_services() {
     SYSTEM_SERVICES=()
     USER_SERVICES=()
-    _read_service_file "$ARCHBOOT_ROOT/services/system" SYSTEM_SERVICES || return 1
-    _read_service_file "$ARCHBOOT_ROOT/services/user" USER_SERVICES || return 1
+    _read_service_file "$LEANIN_ROOT/services/system" SYSTEM_SERVICES || return 1
+    _read_service_file "$LEANIN_ROOT/services/user" USER_SERVICES || return 1
 }
 
 print_services_plan() {
