@@ -8,6 +8,8 @@ GH_AUTH_READY=0
 GH_SSH_KEY_LIST_READY=0
 GH_SSH_KEY_ADD_READY=0
 GH_SSH_KEY_DELETE_READY=0
+# Read by the installer summary after this module is sourced.
+# shellcheck disable=SC2034
 GITHUB_SSH_MANAGEMENT_STATUS='não verificada'
 GITHUB_KEYS_URL=${GITHUB_KEYS_URL:-'https://github.com/settings/keys'}
 declare -ag GITHUB_KEY_IDS=() GITHUB_KEY_TITLES=() GITHUB_KEY_VALUES=()
@@ -59,6 +61,8 @@ github_ssh_key_management_ready() {
         # endpoints. Individual add/delete errors are still handled below.
         GH_SSH_KEY_ADD_READY=1
         GH_SSH_KEY_DELETE_READY=1
+        # Read by the installer summary after this module is sourced.
+        # shellcheck disable=SC2034
         GITHUB_SSH_MANAGEMENT_STATUS='disponível'
         if (( GH_SSH_KEY_LIST_READY && GH_SSH_KEY_ADD_READY && GH_SSH_KEY_DELETE_READY )); then
             ok 'GitHub CLI pode listar, cadastrar e remover SSH keys'
@@ -66,6 +70,8 @@ github_ssh_key_management_ready() {
         return 0
     fi
 
+    # Read by the installer summary after this module is sourced.
+    # shellcheck disable=SC2034
     GITHUB_SSH_MANAGEMENT_STATUS='indisponível'
     warn 'GitHub CLI não tem permissões para gerenciar SSH keys'
     info 'execute: gh auth refresh -h github.com -s admin:public_key'
@@ -350,6 +356,8 @@ github_manage_ssh_key() {
         fi
     fi
     if ! github_list_ssh_keys; then
+        # Read by the installer summary after this module is sourced.
+        # shellcheck disable=SC2034
         GITHUB_SSH_MANAGEMENT_STATUS='indisponível'
         warn 'não foi possível carregar as SSH keys do GitHub'
         github_manual_ssh_key
