@@ -2,50 +2,13 @@
 
 ## Unreleased
 
-* Hardened GitHub CLI SSH-key authentication: fresh login requests `admin:public_key`, existing sessions can upgrade the scope, and both flows recheck SSH-key management before registration.
-* Made GitHub device/browser authentication explicit, terminal-bound, and time-bounded, with accurate manual fallback guidance.
-* Kept GitHub SSH summaries and tests honest when manual registration remains pending.
-* Expanded regression coverage for GitHub auth, SSH-key registration, clipboard outcomes, and read-only modes.
-* Made `--help` a true early exit and made dry-run summaries explicitly successful instead of reporting pending manual setup.
-* Bound `ssh-add` passphrase prompts to `/dev/tty`, skipped agent mutation in safe modes, and removed forced SSH-backup restoration.
-* Detect GitHub CLI clipboard support before requesting it, avoiding duplicate device-code authentication attempts.
-* Rebuilt GitHub SSH setup around `gh api user/keys`, replacing signing-key-noisy CLI listing and the separate-worker hybrid with a supervised `/dev/tty` flow and API revalidation.
-* Renamed the project to leanin.
-* Made `LEANIN_*` variables primary and kept `ARCHBOOT_*` compatibility aliases.
-* Moved new logs to `~/.local/state/leanin/logs` without removing old logs.
-* Polished runtime output with clearer stage names, summaries, and diagnostics.
-* Improved doctor, plan, and dry-run formatting.
-* Added output regression checks.
-* Refined the README into a portfolio-style project page.
-* Improved the local SVG project banner.
-* Added stricter README structure checks.
-* Redesigned the README as a portfolio-style English project page.
-* Added a local SVG project banner.
-* Moved verbose documentation out of the main README.
-* Added stricter documentation checks.
-* Fixed SSH key generation prompt handling when running through `curl | bash`.
-* Added Sober Roblox launcher as a default Flatpak app.
-* Added Flatpak games category.
-* Final bug hunt and output cleanup.
-* Reordered installer steps for clearer source, SSH and GitHub flow.
-* Removed the empty final integration stage.
-* Expanded regression coverage for output, prompts and edge cases.
-* Fixed GitHub SSH prompt ordering so key title is only requested when a key will actually be registered.
-* Fixed confirmation prompts when running through `curl | bash` by reading from `/dev/tty`.
-* Added `--doctor` for quick local diagnostics.
-* Kept the personal fast main-based installer flow.
-* Added confirmation prompts before reconfiguring existing Git, SSH, GitHub, Codex and service state.
-* `--yes` keeps safe defaults and does not force destructive reconfiguration.
-* Fixed sudo command resolution when the installer validation helper is loaded.
-* Hardened app/service parsing, SSH backup recovery and bootstrap minimum-PATH handling.
-* Expanded regression coverage for bootstrap failures, Worker behavior, prompts and side effects.
-* Initial technical hardening.
-* Expanded structural, argument, security and bootstrap checks.
-* Removed unused internal state.
-* Strengthened argument and bootstrap validation.
-* Hardened remote repository, branch, tarball and extraction validation.
-* Added log redaction and restrictive log permissions.
-* Added focused troubleshooting documentation and clearer failure diagnostics.
+* Rebuilt GitHub SSH setup around `gh api user/keys` with supervised `/dev/tty` authentication, capability revalidation, and guarded remote-key cleanup.
+* Kept SSH, Git, Codex, package, and service changes opt-in when existing state differs; `--yes` retains safe defaults.
+* Added read-only `--doctor`, `--plan`, and dry-run modes, plus deterministic CI behavior through `LEANIN_CI` and the `ARCHBOOT_CI` compatibility alias.
+* Hardened remote bootstrap validation, log redaction, and `curl | bash` TTY handling.
+* Simplified installer stages around a single package phase and removed unused modules and obsolete compatibility paths.
+* Expanded deterministic regression coverage for parser safety, bootstrap, local SSH, GitHub API, services, output, and Worker behavior.
+* Refined the English documentation and portfolio-oriented README around the public `shelies.org` installer.
 
 ## v0.1.1
 

@@ -13,7 +13,7 @@
 
 `LEANIN_CI=1` only permits safe modes. `ARCHBOOT_CI=1` remains a temporary compatibility alias.
 
-`LEANIN_REPO`, `LEANIN_BRANCH`, and `LEANIN_CI` are the primary override variables. The matching `ARCHBOOT_*` names remain supported as temporary fallbacks; when both are present, the `LEANIN_*` value wins.
+`LEANIN_REPO`, `LEANIN_BRANCH`, and `LEANIN_CI` are the supported override variables. Only `ARCHBOOT_CI` remains as a compatibility alias for older CI invocations.
 
 ## Existing state
 
@@ -25,7 +25,7 @@ When started through `curl | bash`, prompts, `ssh-keygen`, and `ssh-add` use `/d
 
 ## GitHub authentication
 
-During an interactive run, leanin supervises GitHub authentication in the current `/dev/tty`. This is intentionally simpler than a separate-terminal worker: GitHub CLI owns the visible browser/device-code exchange, then leanin rechecks `gh auth status` and `gh api user/keys` before continuing automatic SSH-key registration.
+During an interactive run, leanin supervises GitHub authentication in the current `/dev/tty`. GitHub CLI owns the visible browser/device-code exchange, then leanin rechecks `gh auth status` and `gh api user/keys` before continuing automatic SSH-key registration.
 
 `--yes`, `--dry-run`, `--doctor`, `--plan`, and CI never run authentication. If it fails or cannot start, leanin shows the key, the exact `gh` command, and the manual GitHub-keys URL.
 
@@ -39,4 +39,4 @@ The installer never removes packages, clears the pacman lock or enables a missin
 
 The short domain serves `install.sh`; the script then downloads the repository tarball from GitHub into a temporary directory and validates its layout before continuing. The repository/branch override inputs are restricted to safe GitHub HTTPS values.
 
-Real runs log to `~/.local/state/leanin/logs` with restrictive permissions. Existing `~/.local/state/archboot/logs` files are not migrated or removed. Common token patterns and private-key blocks are redacted, but inspect logs before sharing them.
+Real runs log to `~/.local/state/leanin/logs` with restrictive permissions. Common token patterns and private-key blocks are redacted, but inspect logs before sharing them.

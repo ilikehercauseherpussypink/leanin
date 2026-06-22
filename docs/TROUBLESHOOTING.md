@@ -141,14 +141,13 @@ Open a new terminal after the PATH changes. An older Codex installation in anoth
 ```bash
 curl -fsSL https://shelies.org/health
 curl -fsSL https://shelies.org | head
-curl -fsSL https://archboot.jocaluvero.workers.dev/health
 ```
 
 The Worker serves `install.sh` from GitHub. A `502` usually means that the upstream could not be fetched.
 
 ## Logs
 
-Every real run creates a log under `~/.local/state/leanin/logs`. Existing archboot logs are left untouched.
+Every real run creates a log under `~/.local/state/leanin/logs`.
 
 ```bash
 ls -1t ~/.local/state/leanin/logs | head
