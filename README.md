@@ -91,7 +91,7 @@ flatpak run org.vinegarhq.Sober
 * Pipe installs read prompts from `/dev/tty` when available.
 * SSH key generation and `ssh-add` use `/dev/tty` during pipe installs, so a passphrase never consumes the pipe input.
 * `--help` and `--version` exit before the repository bootstrap.
-* Interactive GitHub authentication runs as a supervised worker: leanin waits visibly, rechecks SSH-key permission, then continues registration automatically.
+* Interactive GitHub authentication runs visibly in the current terminal through `/dev/tty`, then rechecks the GitHub key API before continuing registration automatically.
 
 ## architecture
 

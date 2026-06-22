@@ -597,8 +597,7 @@ show_summary() {
     if (( SKIP_GITHUB )); then
         info 'GitHub SSH: desativado por flag'
     else
-        info "GitHub SSH: ${GITHUB_NEW_KEY_STATUS:-registro manual pendente}"
-        info "GitHub auth: ${GH_STATE:-gh_unknown}"
+        info "GitHub SSH: $(github_summary_state)"
     fi
     if (( SKIP_CODEX )); then
         info 'Codex: desativado por flag'

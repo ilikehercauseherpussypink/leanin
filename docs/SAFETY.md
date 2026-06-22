@@ -25,9 +25,9 @@ When started through `curl | bash`, prompts, `ssh-keygen`, and `ssh-add` use `/d
 
 ## GitHub authentication
 
-During an interactive run, leanin can launch a supervised GitHub authentication worker. It requests the `admin:public_key` scope, waits visibly for the browser/device-code flow, rechecks `gh auth status` and `gh ssh-key list`, then continues automatic SSH-key registration only when key management is available.
+During an interactive run, leanin supervises GitHub authentication in the current `/dev/tty`. This is intentionally simpler than a separate-terminal worker: GitHub CLI owns the visible browser/device-code exchange, then leanin rechecks `gh auth status` and `gh api user/keys` before continuing automatic SSH-key registration.
 
-When a graphical session and supported terminal are available, the worker can open in a separate terminal. Otherwise it uses the current `/dev/tty`. `--yes`, `--dry-run`, `--doctor`, `--plan`, and CI never launch it. If it fails, times out, or cannot start, leanin shows the key, the exact `gh` command, and the manual GitHub-keys URL.
+`--yes`, `--dry-run`, `--doctor`, `--plan`, and CI never run authentication. If it fails or cannot start, leanin shows the key, the exact `gh` command, and the manual GitHub-keys URL.
 
 `GH_TOKEN` or `GITHUB_TOKEN` can satisfy GitHub CLI authentication for headless automation, but leanin does not require either for the normal personal flow.
 

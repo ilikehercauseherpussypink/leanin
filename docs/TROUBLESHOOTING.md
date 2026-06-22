@@ -88,12 +88,12 @@ systemctl status mullvad-daemon.service
 gh auth status
 ```
 
-`gh auth status` can be OK while `gh ssh-key list` still fails.
+`gh auth status` can be OK while the authentication-key API still fails.
 
 For a fresh login, use:
 
 ```bash
-gh auth login -h github.com -p ssh -s admin:public_key
+gh auth login -h github.com -p ssh -s admin:public_key --web
 ```
 
 For an existing weak login, use:
@@ -105,26 +105,24 @@ gh auth refresh -h github.com -s admin:public_key
 Verify and rerun leanin:
 
 ```bash
-gh ssh-key list
+gh api user/keys
 curl -fsSL https://shelies.org | bash
 ssh -T git@github.com
 ```
 
-`admin:public_key` is required because leanin can list, add, and optionally remove old SSH keys. During a normal interactive run, leanin starts a supervised authentication worker instead of handing an untracked prompt to the installer. It can open a supported graphical terminal when available, otherwise it uses `/dev/tty`; `curl | bash` never feeds its input to `gh`.
+`admin:public_key` is required because leanin lists, adds, and optionally removes Git SSH authentication keys through `gh api user/keys`. During a normal interactive run, leanin uses a **supervised same-terminal flow** through `/dev/tty`; `curl | bash` never feeds its input to `gh`. When `gh` returns, leanin revalidates both `gh auth status` and `gh api user/keys` before it registers a key. The authentication-key backend does not query the SSH signing-key API, so signing-key scope warnings do not affect this setup.
 
 Local keys stay in `~/.ssh`. If automatic registration cannot continue, manual registration at <https://github.com/settings/keys> remains safe: add the public `.pub` key shown by the installer, then run the SSH test above. Local SSH files are never deleted.
 
 ## GitHub authentication looks stuck
 
-During GitHub CLI device authentication, you may see a one-time code and a prompt to press Enter before opening `https://github.com/login/device`. Copy the code, authenticate in the browser, then return to the worker terminal and press Enter if GitHub CLI is still waiting. The main installer reports that it is waiting and rechecks key-management access before it registers the local key.
-
-The worker waits for up to 600 seconds by default. Set `LEANIN_GH_AUTH_TIMEOUT` to another positive number of seconds if necessary. A timeout does not kill a terminal emulator; leanin marks GitHub setup as pending and prints the exact next command.
+During GitHub CLI device authentication, you may see a one-time code and a prompt to press Enter before opening `https://github.com/login/device`. Copy the code, authenticate in the browser, return to the same terminal and press Enter if GitHub CLI is still waiting. leanin then rechecks API access before it registers the local key.
 
 For existing weak scopes:
 
 ```bash
 gh auth refresh -h github.com -s admin:public_key
-gh ssh-key list
+gh api user/keys
 curl -fsSL https://shelies.org | bash
 ```
 
