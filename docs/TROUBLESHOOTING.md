@@ -82,15 +82,49 @@ pacman -Q mullvad-vpn-daemon mullvad-vpn-bin
 systemctl status mullvad-daemon.service
 ```
 
-## GitHub CLI and SSH
+## GitHub CLI authenticated but SSH key management unavailable
 
 ```bash
 gh auth status
-gh auth login
+```
+
+`gh auth status` can be OK while the authentication-key API still fails.
+
+For a fresh login, use:
+
+```bash
+gh auth login -h github.com -p ssh -s admin:public_key --web
+```
+
+For an existing weak login, use:
+
+```bash
+gh auth refresh -h github.com -s admin:public_key
+```
+
+Verify and rerun leanin:
+
+```bash
+gh api user/keys
+curl -fsSL https://shelies.org | bash
 ssh -T git@github.com
 ```
 
-Local keys stay in `~/.ssh`. When automatic registration through `gh` is unavailable, use the public `.pub` path shown by the installer. Local SSH files are never deleted.
+`admin:public_key` is required because leanin lists, adds, and optionally removes Git SSH authentication keys through `gh api user/keys`. During a normal interactive run, leanin uses a **supervised same-terminal flow** through `/dev/tty`; `curl | bash` never feeds its input to `gh`. When `gh` returns, leanin revalidates both `gh auth status` and `gh api user/keys` before it registers a key. The authentication-key backend does not query the SSH signing-key API, so signing-key scope warnings do not affect this setup.
+
+Local keys stay in `~/.ssh`. If automatic registration cannot continue, manual registration at <https://github.com/settings/keys> remains safe: add the public `.pub` key shown by the installer, then run the SSH test above. Local SSH files are never deleted.
+
+## GitHub authentication looks stuck
+
+During GitHub CLI device authentication, you may see a one-time code and a prompt to press Enter before opening `https://github.com/login/device`. Copy the code, authenticate in the browser, return to the same terminal and press Enter if GitHub CLI is still waiting. leanin then rechecks API access before it registers the local key.
+
+For existing weak scopes:
+
+```bash
+gh auth refresh -h github.com -s admin:public_key
+gh api user/keys
+curl -fsSL https://shelies.org | bash
+```
 
 ## Codex PATH
 

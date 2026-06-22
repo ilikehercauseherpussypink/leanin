@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+* Hardened GitHub CLI SSH-key authentication: fresh login requests `admin:public_key`, existing sessions can upgrade the scope, and both flows recheck SSH-key management before registration.
+* Made GitHub device/browser authentication explicit, terminal-bound, and time-bounded, with accurate manual fallback guidance.
+* Kept GitHub SSH summaries and tests honest when manual registration remains pending.
+* Expanded regression coverage for GitHub auth, SSH-key registration, clipboard outcomes, and read-only modes.
+* Made `--help` a true early exit and made dry-run summaries explicitly successful instead of reporting pending manual setup.
+* Bound `ssh-add` passphrase prompts to `/dev/tty`, skipped agent mutation in safe modes, and removed forced SSH-backup restoration.
+* Detect GitHub CLI clipboard support before requesting it, avoiding duplicate device-code authentication attempts.
+* Rebuilt GitHub SSH setup around `gh api user/keys`, replacing signing-key-noisy CLI listing and the separate-worker hybrid with a supervised `/dev/tty` flow and API revalidation.
 * Renamed the project to leanin.
 * Made `LEANIN_*` variables primary and kept `ARCHBOOT_*` compatibility aliases.
 * Moved new logs to `~/.local/state/leanin/logs` without removing old logs.

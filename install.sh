@@ -36,13 +36,15 @@ initial_banner() {
 EARLY_PLAN=0
 EARLY_VERSION=0
 EARLY_VERBOSE=0
+EARLY_HELP=0
 for argument in "$@"; do
     case $argument in
         --version) EARLY_VERSION=1 ;;
         --plan) EARLY_PLAN=1 ;;
         --verbose) EARLY_VERBOSE=1 ;;
         --doctor|--dry-run|--yes|--no-packages|--no-pacman|--no-flatpak|--no-aur|\
-            --no-services|--no-codex|--no-git|--no-ssh|--no-github|--help|-h) ;;
+            --no-services|--no-codex|--no-git|--no-ssh|--no-github) ;;
+        --help|-h) EARLY_HELP=1 ;;
         *)
             printf '> [error] opção desconhecida: %s\n' "$argument" >&2
             exit 2
@@ -54,6 +56,30 @@ if (( EARLY_VERSION )); then
         while IFS= read -r _; do :; done
     fi
         printf 'leanin %s\n' "$LEANIN_VERSION"
+    exit 0
+fi
+
+if (( EARLY_HELP )); then
+    cat <<'EOF'
+Uso: bash install.sh [opções]
+
+  --dry-run       mostra ações sem alterar o sistema
+  --verbose       mostra comandos e saída completa
+  --plan          mostra somente o plano resumido
+  --doctor        verifica o ambiente sem alterar o sistema
+  --version       mostra a versão instalada
+  --yes           usa defaults seguros sem prompts
+  --no-packages   pula pacman, Flatpak e AUR
+  --no-pacman     pula pacotes pacman
+  --no-flatpak    pula Flatpak, Flathub e seus apps
+  --no-aur        pula AUR helper e pacotes AUR
+  --no-services   pula serviços system e user
+  --no-codex      pula Codex CLI
+  --no-git        pula identidade e preferências Git
+  --no-ssh        pula SSH local e integração GitHub SSH
+  --no-github     pula integração e autenticação GitHub
+  --help          mostra esta ajuda
+EOF
     exit 0
 fi
 
@@ -375,6 +401,7 @@ show_plan_only() {
     load_plan
 
     printf 'plano\n\n'
+    printf 'pacotes\n'
     if (( SKIP_PACMAN )); then
         info "pacman: desativado ($(count_apps pacman) configurados)"
     else
@@ -390,6 +417,7 @@ show_plan_only() {
     else
         plan_count AUR "$(count_apps aur)" pacote pacotes
     fi
+    printf '\nserviços\n'
     if (( SKIP_SERVICES )); then
         info "serviços system: desativado (${#SYSTEM_SERVICES[@]} configurados)"
         info "serviços user: desativado (${#USER_SERVICES[@]} configurados)"
@@ -397,6 +425,7 @@ show_plan_only() {
         plan_count 'serviços system' "${#SYSTEM_SERVICES[@]}" serviço serviços
         plan_count 'serviços user' "${#USER_SERVICES[@]}" serviço serviços
     fi
+    printf '\nintegrações\n'
     info "Codex: $(plan_status "$SKIP_CODEX")"
     info "Git: $(plan_status "$SKIP_GIT")"
     if (( SKIP_SSH || SKIP_GITHUB )); then
@@ -534,10 +563,16 @@ show_summary() {
     log_list 'service skipped' "${SERVICES_SKIPPED[@]}"
     log_list 'failure' "${FAILURES[@]}"
 
-    if (( failure_count == 0 )); then
-        ok 'concluído'
-    else
+    if (( failure_count > 0 )); then
         error "concluído com $failure_count falha(s)"
+    elif (( DRY_RUN )); then
+        ok 'dry-run concluído'
+    else
+        if (( ! SKIP_GITHUB )) && ! github_ssh_registration_ready; then
+            warn 'concluído com etapas manuais'
+        else
+            ok 'concluído'
+        fi
     fi
 
     printf '\npacotes\n'
@@ -562,7 +597,7 @@ show_summary() {
     if (( SKIP_GITHUB )); then
         info 'GitHub SSH: desativado por flag'
     else
-        info "GitHub SSH: ${GITHUB_NEW_KEY_STATUS:-fallback manual}"
+        info "GitHub SSH: $(github_summary_state)"
     fi
     if (( SKIP_CODEX )); then
         info 'Codex: desativado por flag'
@@ -591,6 +626,7 @@ show_summary() {
         info "Git: ${GIT_NAME:-não configurado} <${GIT_EMAIL:-não configurado}>"
         info "chave SSH pública: ${SSH_PUBLIC_KEY:-não configurada}"
         info "GitHub SSH keys antigas: ${GITHUB_OLD_KEYS_STATUS:-não verificadas}"
+        info "permissões GitHub SSH keys: ${GITHUB_SSH_MANAGEMENT_STATUS:-não verificadas}"
         info "título GitHub SSH key: ${GITHUB_KEY_TITLE:-person}"
         info "teste SSH GitHub: ${SSH_GITHUB_RESULT:-não testado}"
     fi
@@ -608,8 +644,9 @@ show_summary() {
         fi
     fi
 
-    if [[ ${GITHUB_NEW_KEY_STATUS:-} == 'fallback manual' ]]; then
-        info "próximo passo: cadastre a chave em $GITHUB_KEYS_URL"
+    if (( ! SKIP_GITHUB )) && ! github_ssh_registration_ready; then
+        info "próximo passo: adicione a chave SSH em $GITHUB_KEYS_URL"
+        info 'próximo passo: teste com: ssh -T git@github.com'
     fi
     if (( CODEX_PATH_CHANGED )); then
         info 'próximo passo: abra um novo terminal para ativar o PATH do Codex'
@@ -733,10 +770,15 @@ main() {
         next_step 'GitHub'
         if (( ssh_ready )); then
             github_manage_ssh_key "$SSH_PUBLIC_KEY"
-            test_github_ssh || true
+            if github_ssh_registration_ready; then
+                test_github_ssh || true
+            else
+                SSH_GITHUB_RESULT='pendente'
+                skip 'teste SSH GitHub pulado; cadastro da chave pendente'
+            fi
         else
             skip 'GitHub SSH pulado: chave local indisponível'
-            configure_gh || true
+            GITHUB_NEW_KEY_STATUS='chave local indisponível'
         fi
     fi
 

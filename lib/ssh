@@ -78,10 +78,10 @@ _backup_ssh_key() {
 _restore_ssh_backup() {
     local private_key=$1 public_key=$2 restored=0
     if [[ -n $SSH_BACKUP_PRIVATE && -e $SSH_BACKUP_PRIVATE ]]; then
-        mv -f -- "$SSH_BACKUP_PRIVATE" "$private_key" && restored=1
+        mv -- "$SSH_BACKUP_PRIVATE" "$private_key" && restored=1
     fi
     if [[ -n $SSH_BACKUP_PUBLIC && -e $SSH_BACKUP_PUBLIC ]]; then
-        mv -f -- "$SSH_BACKUP_PUBLIC" "$public_key" && restored=1
+        mv -- "$SSH_BACKUP_PUBLIC" "$public_key" && restored=1
     fi
     (( restored )) && warn 'chave SSH anterior restaurada após falha na geração'
     return 0
@@ -100,15 +100,19 @@ _ssh_tty_path() {
 }
 
 _ssh_tty_available() {
-    local tty=''
+    local tty='' fd
     tty=$(_ssh_tty_path)
-    [[ -n $tty && -r $tty && -w $tty ]]
+    [[ -n $tty && -e $tty ]] || return 1
+    if ! { exec {fd}<>"$tty"; } 2>/dev/null; then
+        return 1
+    fi
+    exec {fd}>&-
 }
 
 _generate_ssh_key() {
-    local private_key=$1 email=$2 tty=''
+    local private_key=$1 email=$2 tty='' fd status=0
     tty=$(_ssh_tty_path)
-    if [[ -z $tty || ! -r $tty || ! -w $tty ]]; then
+    if [[ -z $tty || ! -e $tty ]] || ! { exec {fd}<>"$tty"; } 2>/dev/null; then
         error 'não há terminal disponível para gerar chave SSH interativa'
         info 'baixe o script e execute localmente:'
         info 'curl -fsSL https://shelies.org -o install.sh'
@@ -116,11 +120,13 @@ _generate_ssh_key() {
         return 1
     fi
 
-    # /dev/tty é o terminal interativo, não um arquivo comum.
-    # shellcheck disable=SC2094
+    # The open descriptor is the interactive terminal, never piped stdin.
     SSH_ASKPASS='' SSH_ASKPASS_REQUIRE=never \
         ssh-keygen -q -t ed25519 -C "$email" -f "$private_key" \
-        <"$tty" >"$tty" 2>"$tty"
+        <&"$fd" >&"$fd" 2>&"$fd"
+    status=$?
+    exec {fd}>&-
+    return "$status"
 }
 
 _start_ssh_agent() {
@@ -132,6 +138,37 @@ _start_ssh_agent() {
     pid=$(printf '%s\n' "$agent_output" | sed -n 's/^SSH_AGENT_PID=\([^;]*\).*/\1/p')
     [[ -n $sock && -n $pid ]] || return 1
     export SSH_AUTH_SOCK=$sock SSH_AGENT_PID=$pid
+}
+
+_add_ssh_key_to_agent() {
+    local private_key=$1 tty='' fd status=0
+
+    if (( ${ASSUME_YES:-0} || ${CI_MODE:-0} == 1 )); then
+        skip 'ssh-agent não alterado por modo seguro'
+        return 0
+    fi
+    tty=$(_ssh_tty_path)
+    if [[ -z $tty || ! -e $tty ]] || ! { exec {fd}<>"$tty"; } 2>/dev/null; then
+        warn 'não há terminal disponível para adicionar a chave ao ssh-agent'
+        info "adicione depois: ssh-add $private_key"
+        return 1
+    fi
+
+    info 'ssh-add pode solicitar a passphrase da chave neste terminal'
+    _log_command ssh-add "$private_key"
+    set +e
+    # The open descriptor keeps passphrase prompts out of piped stdin.
+    SSH_ASKPASS='' SSH_ASKPASS_REQUIRE=never ssh-add "$private_key" \
+        <&"$fd" >&"$fd" 2>&"$fd"
+    status=$?
+    exec {fd}>&-
+    set -e
+    if (( status == 0 )); then
+        ok 'ssh-agent'
+        return 0
+    fi
+    warn 'não foi possível adicionar a chave ao ssh-agent'
+    return "$status"
 }
 
 configure_ssh() {
@@ -230,11 +267,7 @@ configure_ssh() {
 
     if (( ! DRY_RUN )); then
         if _start_ssh_agent; then
-            if run_cmd 'adicionar chave ao ssh-agent' ssh-add "$SSH_PRIVATE_KEY"; then
-                ok 'ssh-agent'
-            else
-                warn 'não foi possível adicionar a chave ao ssh-agent'
-            fi
+            _add_ssh_key_to_agent "$SSH_PRIVATE_KEY" || true
         else
             warn 'ssh-agent indisponível'
         fi
@@ -254,11 +287,27 @@ print_pubkey() {
     cat "$SSH_PUBLIC_KEY"
     printf '\n'
     if command_exists wl-copy; then
-        wl-copy <"$SSH_PUBLIC_KEY" && SSH_CLIPBOARD='sim (wl-copy)'
+        if wl-copy <"$SSH_PUBLIC_KEY"; then
+            SSH_CLIPBOARD='sim (wl-copy)'
+        fi
     elif command_exists xclip; then
-        xclip -selection clipboard <"$SSH_PUBLIC_KEY" && SSH_CLIPBOARD='sim (xclip)'
+        if xclip -selection clipboard <"$SSH_PUBLIC_KEY"; then
+            SSH_CLIPBOARD='sim (xclip)'
+        fi
+    elif command_exists xsel; then
+        if xsel --clipboard --input <"$SSH_PUBLIC_KEY"; then
+            SSH_CLIPBOARD='sim (xsel)'
+        fi
+    elif command_exists pbcopy; then
+        if pbcopy <"$SSH_PUBLIC_KEY"; then
+            SSH_CLIPBOARD='sim (pbcopy)'
+        fi
     fi
-    [[ $SSH_CLIPBOARD == não ]] || ok 'chave pública copiada para o clipboard'
+    if [[ $SSH_CLIPBOARD == não ]]; then
+        info 'clipboard indisponível; copie a chave manualmente'
+    else
+        ok 'chave pública copiada para o clipboard'
+    fi
     export SSH_CLIPBOARD
 }
 

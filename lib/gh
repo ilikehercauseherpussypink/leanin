@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 
-GITHUB_KEY_TITLE_DEFAULT='person'
-GITHUB_KEY_TITLE=$GITHUB_KEY_TITLE_DEFAULT
-GITHUB_OLD_KEYS_STATUS='não verificadas'
+# GitHub SSH keys are managed through user/keys, the authentication-key API.
+# This intentionally avoids gh ssh-key list, which may query signing keys too.
+# GH_TOKEN/GITHUB_TOKEN are honored by gh and therefore need no interactive login.
+
+GITHUB_KEYS_URL=${GITHUB_KEYS_URL:-'https://github.com/settings/keys'}
+GITHUB_KEY_TITLE=''
 GITHUB_NEW_KEY_STATUS='não configurada'
-GH_AUTH_READY=0
+GITHUB_OLD_KEYS_STATUS='não verificadas'
+GITHUB_SSH_MANAGEMENT_STATUS='não verificada'
+GH_STATE='gh_unknown'
 declare -ag GITHUB_KEY_IDS=() GITHUB_KEY_TITLES=() GITHUB_KEY_VALUES=()
 declare -ag GITHUB_OLD_KEY_IDS=() GITHUB_OLD_KEY_TITLES=() GITHUB_OLD_KEY_VALUES=()
 
 _github_decode() {
-    local encoded=${1:-}
-    [[ -n $encoded ]] || return 1
-    printf '%s' "$encoded" | base64 --decode 2>/dev/null
+    local value=${1:-}
+    [[ -n $value ]] && printf '%s' "$value" | base64 --decode 2>/dev/null
 }
 
 _github_key_material() {
@@ -21,125 +25,158 @@ _github_key_material() {
     printf '%s %s' "$type" "$material"
 }
 
-_github_gh_ready() {
+_github_tty_path() { printf '%s' /dev/tty; }
+
+_github_tty_available() {
+    local tty='' fd
+    tty=$(_github_tty_path)
+    [[ -n $tty && -e $tty ]] || return 1
+    if ! { exec {fd}<>"$tty"; } 2>/dev/null; then
+        return 1
+    fi
+    exec {fd}>&-
+}
+
+_github_auth_allowed() {
+    (( ! ${ASSUME_YES:-0} && ! ${DRY_RUN:-0} && ${CI_MODE:-0} != 1 \
+        && ! ${PLAN_ONLY:-0} && ! ${DOCTOR_ONLY:-0} )) \
+        && _github_tty_available
+}
+
+# shellcheck disable=SC2034
+# Read by the installer summary after this module is sourced.
+github_detect_state() {
     if ! command_exists gh; then
-        warn 'GitHub CLI indisponível; cadastro automático não será usado'
-        info 'para autenticar depois: gh auth login'
+        GH_STATE='gh_missing'
+        GITHUB_SSH_MANAGEMENT_STATUS='indisponível'
+    elif ! gh auth status >/dev/null 2>&1; then
+        GH_STATE='gh_unauthenticated'
+        GITHUB_SSH_MANAGEMENT_STATUS='pendente'
+    elif gh api --silent user/keys >/dev/null 2>&1; then
+        GH_STATE='gh_key_api_available'
+        GITHUB_SSH_MANAGEMENT_STATUS='disponível'
+    else
+        GH_STATE='gh_authenticated_no_public_key_scope'
+        GITHUB_SSH_MANAGEMENT_STATUS='indisponível'
+    fi
+    printf '%s' "$GH_STATE"
+}
+
+github_key_api_available() {
+    github_detect_state >/dev/null
+    [[ $GH_STATE == gh_key_api_available ]]
+}
+
+_github_auth_command() {
+    local mode=$1
+    case $mode in
+        login) printf '%s\0' gh auth login -h github.com -p ssh -s admin:public_key --web ;;
+        refresh) printf '%s\0' gh auth refresh -h github.com -s admin:public_key ;;
+        *) return 2 ;;
+    esac
+}
+
+github_run_auth() {
+    local mode=$1 tty='' fd status=0 description=''
+    local -a command=()
+    mapfile -d '' -t command < <(_github_auth_command "$mode") || return 2
+    tty=$(_github_tty_path)
+    if [[ -z $tty || ! -e $tty ]] || ! { exec {fd}<>"$tty"; } 2>/dev/null; then
         return 1
     fi
-    if run_cmd 'gh auth status' gh auth status; then
-        ok 'GitHub CLI autenticado'
-        GH_AUTH_READY=1
-        return 0
+
+    case $mode in
+        login) description='autenticação GitHub' ;;
+        refresh) description='atualização de permissões GitHub' ;;
+    esac
+    info "$description será executada neste terminal"
+    info "comando: $(_render_command "${command[@]}")"
+    info 'o GitHub pode mostrar um código único para copiar'
+    info 'autentique no navegador, retorne a este terminal e pressione Enter se solicitado'
+    _log_command "${command[@]}"
+    set +e
+    # gh owns this interactive exchange. A timeout here would make a human flow less reliable.
+    "${command[@]}" <&"$fd" >&"$fd" 2>&"$fd"
+    status=$?
+    exec {fd}>&-
+    set -e
+    if (( status != 0 )); then
+        warn "$description não foi concluída"
+        return "$status"
     fi
-    if ! yesno 'Autenticar GitHub CLI via navegador para cadastrar a chave SSH?' n; then
-        skip 'autenticação GitHub CLI recusada'
+    info 'GitHub CLI retornou; verificando autenticação e permissões SSH'
+    return 0
+}
+
+github_prepare_key_api() {
+    local mode=''
+    github_detect_state >/dev/null
+    case $GH_STATE in
+        gh_key_api_available) return 0 ;;
+        gh_missing)
+            warn 'GitHub CLI não está disponível'
+            info 'instale github-cli e execute leanin novamente'
+            return 1
+            ;;
+        gh_unauthenticated)
+            mode=login
+            ;;
+        gh_authenticated_no_public_key_scope)
+            mode=refresh
+            ;;
+        *) return 1 ;;
+    esac
+
+    if (( DRY_RUN )); then
+        printf '> [dry-run] executaria %s com admin:public_key\n' \
+            "$([[ $mode == login ]] && printf 'autenticação GitHub' || printf 'atualização de permissões GitHub')"
         return 1
     fi
-    if gh auth login --web; then
-        ok 'GitHub CLI autenticado'
-        GH_AUTH_READY=1
-        return 0
+    if ! _github_auth_allowed; then
+        if [[ $mode == login ]]; then
+            info 'login: gh auth login -h github.com -p ssh -s admin:public_key --web'
+        else
+            info 'corrija: gh auth refresh -h github.com -s admin:public_key'
+        fi
+        return 1
     fi
-    warn 'autenticação GitHub CLI não concluída'
-    info 'tente novamente: gh auth login'
-    FAILURES+=('gh:auth')
-    return 1
+    if [[ $mode == login ]]; then
+        if ! yesno 'Autenticar GitHub CLI agora?' n; then
+            skip 'autenticação GitHub CLI recusada'
+            return 1
+        fi
+    elif ! yesno 'Atualizar permissões GitHub CLI agora?' n; then
+        skip 'atualização de permissões GitHub recusada'
+        return 1
+    fi
+    github_run_auth "$mode" || return 1
+    github_key_api_available
 }
 
 github_list_ssh_keys() {
-    local output='' key_id='' encoded_title='' encoded_key='' extra=''
-    local key_title='' key_value='' index=0
+    local output='' id='' encoded_title='' encoded_key='' extra='' title='' key='' index
     GITHUB_KEY_IDS=()
     GITHUB_KEY_TITLES=()
     GITHUB_KEY_VALUES=()
-
-    if ! run_capture output 'listar SSH keys do GitHub' \
+    if ! run_capture output 'listar chaves SSH de autenticação do GitHub' \
         gh api --paginate user/keys \
         --jq '.[] | [.id, (.title | @base64), (.key | @base64)] | @tsv'; then
-        warn 'não foi possível listar as SSH keys do GitHub'
-        GITHUB_OLD_KEYS_STATUS='não verificadas'
+        warn 'não foi possível listar chaves SSH de autenticação do GitHub'
         return 1
     fi
-
-    [[ -n $output ]] || {
-        GITHUB_OLD_KEYS_STATUS='mantidas'
-        return 0
-    }
-
-    while IFS=$'\t' read -r key_id encoded_title encoded_key extra; do
-        [[ -n $key_id && -n $encoded_title && -n $encoded_key ]] || continue
-        if [[ -n $extra ]]; then
-            warn "entrada de SSH key ignorada por campos inesperados: $key_id"
-            continue
-        fi
-        if ! key_title=$(_github_decode "$encoded_title"); then
-            warn "entrada de SSH key ignorada por título inválido: $key_id"
-            continue
-        fi
-        if ! key_value=$(_github_decode "$encoded_key"); then
-            warn "entrada de SSH key ignorada por chave inválida: $key_id"
-            continue
-        fi
-        GITHUB_KEY_IDS+=("$key_id")
-        GITHUB_KEY_TITLES+=("$key_title")
-        GITHUB_KEY_VALUES+=("$key_value")
+    while IFS=$'\t' read -r id encoded_title encoded_key extra; do
+        [[ -n $id && -n $encoded_title && -n $encoded_key && -z $extra ]] || continue
+        title=$(_github_decode "$encoded_title") || continue
+        key=$(_github_decode "$encoded_key") || continue
+        GITHUB_KEY_IDS+=("$id")
+        GITHUB_KEY_TITLES+=("$title")
+        GITHUB_KEY_VALUES+=("$key")
     done <<<"$output"
-
-    if ((${#GITHUB_KEY_IDS[@]})); then
-        for index in "${!GITHUB_KEY_IDS[@]}"; do
-            printf 'GitHub SSH key: %s %s\n' \
-                "${GITHUB_KEY_IDS[$index]}" "${GITHUB_KEY_TITLES[$index]}" >>"$LOG_FILE"
-        done
-    else
-        GITHUB_OLD_KEYS_STATUS='mantidas'
-    fi
-}
-
-github_delete_ssh_keys() {
-    local index=0 failed=0 key_id='' key_title=''
-    local key_count=${#GITHUB_OLD_KEY_IDS[@]} key_label='SSH keys antigas'
-    if (( key_count == 0 )); then
-        GITHUB_OLD_KEYS_STATUS='mantidas'
-        return 0
-    fi
-    warn 'isso remove as SSH keys cadastradas no GitHub, não os arquivos locais'
-    if ! yesno 'remover SSH keys antigas do GitHub que não são a chave atual?' n; then
-        GITHUB_OLD_KEYS_STATUS='mantidas'
-        skip 'SSH keys antigas mantidas'
-        return 0
-    fi
-    (( key_count == 1 )) && key_label='SSH key antiga'
-    info "removendo $key_count $key_label"
-
-    for index in "${!GITHUB_OLD_KEY_IDS[@]}"; do
-        key_id=${GITHUB_OLD_KEY_IDS[$index]:-}
-        key_title=${GITHUB_OLD_KEY_TITLES[$index]:-sem-título}
-        [[ -n $key_id ]] || {
-            warn 'entrada de SSH key sem ID ignorada'
-            failed=1
-            continue
-        }
-        (( VERBOSE )) && info "deletando chave GitHub: $key_title"
-        if run_cmd "deletar SSH key GitHub: $key_id" \
-            gh ssh-key delete "$key_id" --yes; then
-            (( VERBOSE )) && ok "$key_title"
-        else
-            warn "falha ao deletar chave GitHub: $key_title"
-            FAILURES+=("gh:ssh-delete:$key_id")
-            failed=1
-        fi
+    for index in "${!GITHUB_KEY_IDS[@]}"; do
+        printf 'GitHub authentication key: %s %s\n' \
+            "${GITHUB_KEY_IDS[$index]}" "${GITHUB_KEY_TITLES[$index]}" >>"$LOG_FILE"
     done
-
-    if (( failed )); then
-        GITHUB_OLD_KEYS_STATUS='não verificadas'
-    else
-        GITHUB_OLD_KEYS_STATUS='removidas'
-        ok 'SSH keys antigas removidas'
-        GITHUB_OLD_KEY_IDS=()
-        GITHUB_OLD_KEY_TITLES=()
-        GITHUB_OLD_KEY_VALUES=()
-    fi
+    return 0
 }
 
 github_key_exists() {
@@ -148,205 +185,152 @@ github_key_exists() {
     expected=$(_github_key_material "$(<"$public_key")") || return 1
     for key in "${GITHUB_KEY_VALUES[@]}"; do
         material=$(_github_key_material "$key") || continue
-        if [[ $material == "$expected" ]]; then
-            return 0
-        fi
+        [[ $material == "$expected" ]] && return 0
     done
     return 1
 }
 
-github_collect_old_ssh_keys() {
-    local public_key=${1:-} expected='' key='' material='' index=0
+_github_default_title() {
+    local host=''
+    host=$(hostname -s 2>/dev/null || hostname 2>/dev/null || printf 'host')
+    host=${host//[^A-Za-z0-9._-]/-}
+    printf 'leanin-%s-%s' "${USER:-user}" "$host"
+}
 
+github_add_ssh_key() {
+    local public_key=$1 title=$2 key=''
+    [[ -r $public_key ]] || return 1
+    key=$(<"$public_key")
+    if run_cmd 'cadastrar chave SSH de autenticação no GitHub' \
+        gh api -X POST user/keys -f "title=$title" -f "key=$key"; then
+        if github_list_ssh_keys && github_key_exists "$public_key"; then
+            GITHUB_NEW_KEY_STATUS='cadastrada automaticamente'
+            ok "chave GitHub cadastrada: $title"
+            return 0
+        fi
+        warn 'GitHub aceitou o cadastro, mas a chave não foi confirmada'
+    fi
+    GITHUB_NEW_KEY_STATUS='falhou'
+    return 1
+}
+
+github_collect_old_ssh_keys() {
+    local public_key=$1 expected='' key='' material='' index
     GITHUB_OLD_KEY_IDS=()
     GITHUB_OLD_KEY_TITLES=()
     GITHUB_OLD_KEY_VALUES=()
-    [[ -r $public_key ]] || return 1
     expected=$(_github_key_material "$(<"$public_key")") || return 1
-
     for index in "${!GITHUB_KEY_IDS[@]}"; do
-        key=${GITHUB_KEY_VALUES[$index]:-}
+        key=${GITHUB_KEY_VALUES[$index]}
         material=$(_github_key_material "$key") || continue
         [[ $material == "$expected" ]] && continue
         GITHUB_OLD_KEY_IDS+=("${GITHUB_KEY_IDS[$index]}")
         GITHUB_OLD_KEY_TITLES+=("${GITHUB_KEY_TITLES[$index]}")
         GITHUB_OLD_KEY_VALUES+=("$key")
     done
+}
 
-    if ((${#GITHUB_OLD_KEY_IDS[@]})); then
-        info "${#GITHUB_OLD_KEY_IDS[@]} SSH keys antigas encontradas"
-        if (( VERBOSE )); then
-            for index in "${!GITHUB_OLD_KEY_IDS[@]}"; do
-                info "${GITHUB_OLD_KEY_IDS[$index]} ${GITHUB_OLD_KEY_TITLES[$index]}"
-            done
-        fi
-    else
+# shellcheck disable=SC2034
+# Read by the installer summary after this module is sourced.
+github_delete_ssh_keys() {
+    local index id failed=0 count=${#GITHUB_OLD_KEY_IDS[@]}
+    (( count > 0 )) || { GITHUB_OLD_KEYS_STATUS='mantidas'; return 0; }
+    info "$count chaves SSH antigas encontradas no GitHub"
+    if ! yesno 'remover chaves SSH antigas do GitHub que não são a chave atual?' n; then
         GITHUB_OLD_KEYS_STATUS='mantidas'
-    fi
-}
-
-github_add_ssh_key() {
-    local public_key=${1:-} key_title=${2:-$GITHUB_KEY_TITLE_DEFAULT}
-    [[ -r $public_key ]] || {
-        warn "chave pública indisponível para cadastro: ${public_key:-não informada}"
-        GITHUB_NEW_KEY_STATUS='falhou'
-        return 1
-    }
-    if github_key_exists "$public_key"; then
-        skip 'chave GitHub já cadastrada'
-        GITHUB_NEW_KEY_STATUS='já existia'
+        skip 'chaves SSH antigas mantidas'
         return 0
     fi
-    (( VERBOSE )) && info "cadastrando chave SSH no GitHub como: $key_title"
-    if run_cmd 'cadastrar SSH key no GitHub' \
-        gh ssh-key add "$public_key" --title "$key_title" --type authentication; then
-        ok "chave GitHub cadastrada: $key_title"
-        GITHUB_NEW_KEY_STATUS='cadastrada automaticamente via gh'
-        return 0
+    for index in "${!GITHUB_OLD_KEY_IDS[@]}"; do
+        id=${GITHUB_OLD_KEY_IDS[$index]}
+        if ! run_cmd "remover chave SSH antiga do GitHub: $id" \
+            gh api -X DELETE "user/keys/$id"; then
+            failed=1
+        fi
+    done
+    if (( failed )); then
+        GITHUB_OLD_KEYS_STATUS='falhou'
+        warn 'uma ou mais chaves SSH antigas não foram removidas'
+    else
+        GITHUB_OLD_KEYS_STATUS='removidas'
+        ok 'chaves SSH antigas removidas'
     fi
-    warn 'falha ao cadastrar chave SSH no GitHub'
-    FAILURES+=('gh:ssh-add')
-    GITHUB_NEW_KEY_STATUS='falhou'
-    return 1
-}
-
-github_confirm_ssh_key_registration() {
-    if ! yesno 'cadastrar esta chave no GitHub?' n; then
-        skip 'cadastro da chave GitHub pulado'
-        GITHUB_NEW_KEY_STATUS='pulada'
-        return 1
-    fi
-    return 0
 }
 
 github_manual_ssh_key() {
-    GITHUB_NEW_KEY_STATUS='fallback manual'
-    warn 'cadastro automático indisponível; use o fluxo manual'
-    print_pubkey || warn 'não foi possível mostrar a chave pública'
-    info "use este título no GitHub: $GITHUB_KEY_TITLE"
-    if yesno 'Abrir a página de chaves SSH do GitHub?' n; then
-        open_url "$GITHUB_KEYS_URL" || true
-        info 'Cole a chave pública no GitHub, salve, depois volte ao terminal.'
-        pause 'Pressione Enter para continuar.'
-    else
-        info "abra manualmente: $GITHUB_KEYS_URL"
-    fi
+    case $GH_STATE in
+        gh_unauthenticated) GITHUB_NEW_KEY_STATUS='autenticação pendente' ;;
+        gh_authenticated_no_public_key_scope) GITHUB_NEW_KEY_STATUS='permissão SSH pendente' ;;
+        *) GITHUB_NEW_KEY_STATUS='cadastro manual pendente' ;;
+    esac
+    warn 'integração automática GitHub SSH não foi concluída'
+    print_pubkey || true
+    case $GH_STATE in
+        gh_unauthenticated) info 'login: gh auth login -h github.com -p ssh -s admin:public_key --web' ;;
+        gh_authenticated_no_public_key_scope) info 'corrija: gh auth refresh -h github.com -s admin:public_key' ;;
+    esac
+    info "adicione a chave em: $GITHUB_KEYS_URL"
+    info 'depois execute: ssh -T git@github.com'
 }
 
-_github_prompt_key_title() {
-    local key_title=''
-    prompt key_title 'título da chave no GitHub' "$GITHUB_KEY_TITLE_DEFAULT"
-    key_title=${key_title:-$GITHUB_KEY_TITLE_DEFAULT}
-    GITHUB_KEY_TITLE=$key_title
-}
-
-github_register_ssh_key() {
-    local public_key=${1:-}
-
-    if github_key_exists "$public_key"; then
-        skip 'chave GitHub já cadastrada'
-        GITHUB_NEW_KEY_STATUS='já existia'
-        return 0
-    fi
-    github_confirm_ssh_key_registration || return 0
-    _github_prompt_key_title
-    github_add_ssh_key "$public_key" "$GITHUB_KEY_TITLE" || github_manual_ssh_key
-}
-
-github_offer_manual_ssh_key() {
-    if ! github_confirm_ssh_key_registration; then
-        return 0
-    fi
-    github_manual_ssh_key
-}
-
+# shellcheck disable=SC2034
+# Read by the installer summary after this module is sourced.
 github_manage_ssh_key() {
-    local public_key=${1:-}
-
-    [[ -r $public_key ]] || {
-        warn "chave pública indisponível para integração GitHub: ${public_key:-não informada}"
-        GITHUB_NEW_KEY_STATUS='falhou'
-        return 1
-    }
-
+    local public_key=${1:-} title=''
+    [[ -r $public_key ]] || { GITHUB_NEW_KEY_STATUS='chave local indisponível'; return 1; }
     if (( DRY_RUN )); then
-        printf '> [dry-run] listaria SSH keys cadastradas no GitHub\n'
-        if ((${#GITHUB_KEY_VALUES[@]})) && github_key_exists "$public_key"; then
-            skip 'chave GitHub já cadastrada'
-            GITHUB_NEW_KEY_STATUS='já existia'
-        else
-            printf '> [dry-run] perguntaria se deve cadastrar chave no GitHub\n'
-            printf '> [dry-run] perguntaria título da chave somente se cadastro fosse confirmado\n'
-            # Consumida pelo resumo do orquestrador.
-            # shellcheck disable=SC2034
-            GITHUB_NEW_KEY_STATUS='dry-run'
-        fi
-        printf '> [dry-run] perguntaria se deve remover SSH keys antigas do GitHub\n'
-        # Consumidas pelo resumo do orquestrador.
-        # shellcheck disable=SC2034
-        GITHUB_OLD_KEYS_STATUS='dry-run'
-        # shellcheck disable=SC2034
+        printf '> [dry-run] consultaria a API user/keys do GitHub\n'
+        printf '> [dry-run] autenticaria ou atualizaria admin:public_key se necessário\n'
+        printf '> [dry-run] perguntaria se deve cadastrar a chave SSH\n'
+        GITHUB_NEW_KEY_STATUS='dry-run'
         return 0
     fi
-
-    if ! _github_gh_ready; then
-        github_offer_manual_ssh_key
+    if ! github_prepare_key_api; then
+        github_manual_ssh_key
         return 0
     fi
     if ! github_list_ssh_keys; then
-        github_offer_manual_ssh_key
+        github_manual_ssh_key
         return 0
     fi
-
-    github_register_ssh_key "$public_key"
-    case $GITHUB_NEW_KEY_STATUS in
-        'já existia'|'cadastrada automaticamente via gh')
-            if github_collect_old_ssh_keys "$public_key"; then
-                github_delete_ssh_keys
-            else
-                warn 'não foi possível comparar a chave local com as chaves do GitHub'
-                # Consumida pelo resumo do orquestrador.
-                # shellcheck disable=SC2034
-                GITHUB_OLD_KEYS_STATUS='não verificadas'
-            fi
-            ;;
-        *)
-            # Não remova o acesso existente se a chave atual não foi registrada.
-            # Consumida pelo resumo do orquestrador.
-            # shellcheck disable=SC2034
-            GITHUB_OLD_KEYS_STATUS='mantidas'
-            ;;
-    esac
+    if github_key_exists "$public_key"; then
+        GITHUB_NEW_KEY_STATUS='já cadastrada'
+        skip 'chave GitHub já cadastrada'
+    else
+        if ! yesno 'Cadastrar esta chave SSH no GitHub?' n; then
+            GITHUB_NEW_KEY_STATUS='cadastro manual pendente'
+            skip 'cadastro da chave GitHub recusado'
+            github_manual_ssh_key
+            return 0
+        fi
+        title=$(_github_default_title)
+        prompt title 'título da chave no GitHub' "$title"
+        title=${title:-$(_github_default_title)}
+        GITHUB_KEY_TITLE=$title
+        github_add_ssh_key "$public_key" "$title" || { github_manual_ssh_key; return 0; }
+    fi
+    if github_collect_old_ssh_keys "$public_key"; then
+        github_delete_ssh_keys
+    fi
 }
 
-configure_gh() {
-    if ! command_exists gh; then
-        warn 'GitHub CLI indisponível; autenticação pulada'
-        info 'para autenticar depois: gh auth login'
-        return 1
-    fi
-    if (( DRY_RUN )); then
-        dry_run_msg gh auth status
-        info 'autenticação GitHub CLI seria verificada'
-        return 0
-    fi
-    if (( GH_AUTH_READY )); then
-        return 0
-    fi
-    if run_cmd 'gh auth status' gh auth status; then
-        ok 'GitHub CLI já autenticado'
-        return 0
-    fi
-    if ! yesno 'Autenticar GitHub CLI via navegador?' n; then
-        skip 'autenticação GitHub CLI recusada'
-        return 0
-    fi
-    if gh auth login --web; then
-        ok 'GitHub CLI autenticado'
-    else
-        warn 'autenticação GitHub CLI não concluída'
-        info 'tente novamente: gh auth login'
-        FAILURES+=('gh:auth')
-        return 1
-    fi
+github_ssh_registration_ready() {
+    case ${GITHUB_NEW_KEY_STATUS:-} in
+        'já cadastrada'|'cadastrada automaticamente') return 0 ;;
+    esac
+    return 1
+}
+
+github_summary_state() {
+    case ${GITHUB_NEW_KEY_STATUS:-} in
+        'já cadastrada') printf '%s' 'já cadastrada' ;;
+        'cadastrada automaticamente') printf '%s' 'cadastrada automaticamente' ;;
+        'autenticação pendente') printf '%s' 'autenticação pendente' ;;
+        'permissão SSH pendente') printf '%s' 'permissão SSH pendente' ;;
+        'cadastro manual pendente') printf '%s' 'cadastro manual pendente' ;;
+        dry-run) printf '%s' 'planejada (dry-run)' ;;
+        'chave local indisponível') printf '%s' 'chave local indisponível' ;;
+        falhou) printf '%s' 'falhou' ;;
+        *) printf '%s' 'não configurada' ;;
+    esac
 }

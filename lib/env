@@ -30,7 +30,7 @@ sudo() {
 net() {
     command_exists curl || die 'curl não está instalado'
     curl -fsSLI --retry 2 --connect-timeout 8 --max-time 20 \
-        https://archlinux.org/ >/dev/null \
+        https://archlinux.org/ >/dev/null 2>&1 \
         || die 'internet indisponível; teste: curl -I https://archlinux.org'
 }
 

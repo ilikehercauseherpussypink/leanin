@@ -215,7 +215,9 @@ else
     error 'default LEANIN_REPO não aponta para ilikehercauseherpussypink/leanin'
     ((failures += 1))
 fi
-if [[ $(rg -o 'LEANIN_' install.sh lib | wc -l) -gt $(rg -o 'ARCHBOOT_' install.sh lib | wc -l) ]]; then
+leanin_var_count=$(grep -Roh -- 'LEANIN_' install.sh lib | wc -l)
+legacy_var_count=$(grep -Roh -- 'ARCHBOOT_' install.sh lib | wc -l)
+if (( leanin_var_count > legacy_var_count )); then
     ok 'LEANIN_* é primário e ARCHBOOT_* permanece apenas como compatibilidade'
 else
     error 'ARCHBOOT_* ainda domina as variáveis internas'
@@ -261,6 +263,12 @@ if grep -REn '(chmod|chown)[[:space:]]+(-[[:alnum:]]*R|--recursive)' \
     ((failures += 1))
 else
     ok 'nenhum chmod/chown recursivo encontrado'
+fi
+if grep -Fq 'https://archlinux.org/ >/dev/null 2>&1' lib/env; then
+    ok 'preflight de internet não vaza saída crua do curl'
+else
+    error 'preflight de internet pode vazar saída crua do curl'
+    ((failures += 1))
 fi
 if grep -REn 'curl[^|]*\|[[:space:]]*(bash|sh)|wget[^|]*\|[[:space:]]*(bash|sh)' \
     install.sh lib scripts/github .github cloudflare/worker.js >/dev/null 2>&1; then
@@ -699,14 +707,14 @@ else
     ((failures += 1))
 fi
 
-if grep -Fq "GITHUB_KEY_TITLE_DEFAULT='person'" lib/gh; then
-    ok 'título padrão da chave GitHub é person'
+if grep -Fq '_github_default_title()' lib/gh \
+    && grep -Fq "printf 'leanin-%s-%s'" lib/gh; then
+    ok 'título padrão da chave GitHub identifica a máquina'
 else
-    error 'título padrão person ausente no fluxo GitHub'
+    error 'título padrão da chave GitHub não identifica a máquina'
     ((failures += 1))
 fi
-if grep -Fq "yesno 'remover SSH keys antigas do GitHub que não são a chave atual?' n" lib/gh \
-    && grep -Fq 'isso remove as SSH keys cadastradas no GitHub, não os arquivos locais' lib/gh \
+if grep -Fq "yesno 'remover chaves SSH antigas do GitHub que não são a chave atual?' n" lib/gh \
     && grep -Fq 'GITHUB_OLD_KEY_IDS' lib/gh \
     && ! grep -Fq 'Deletar TODAS as SSH keys antigas do GitHub?' lib/gh \
     && ! grep -Fq 'Digite DELETE' lib/gh; then
@@ -987,7 +995,7 @@ fi
 
 if default_dry_output=$(LEANIN_CI=1 bash install.sh --dry-run --no-ssh --no-github 2>&1) \
     && grep -Fq '> Etapa 10/10: resumo' <<<"$default_dry_output" \
-    && grep -Fq '> [ok] concluído' <<<"$default_dry_output"; then
+    && grep -Fq '> [ok] dry-run concluído' <<<"$default_dry_output"; then
     ok 'dry-run sem flags de fonte conclui todas as etapas ativas'
 else
     error 'dry-run sem flags de fonte encerrou antes do resumo'
@@ -1046,6 +1054,25 @@ else
     controls_fail=1
 fi
 
+if no_github_output=$(LEANIN_CI=1 bash install.sh --dry-run --no-packages --no-services --no-codex --no-git --no-github 2>&1) \
+    && grep -Fq '[skip] GitHub desativado por flag' <<<"$no_github_output" \
+    && grep -Fq '> Etapa 3/4: SSH' <<<"$no_github_output" \
+    && ! grep -Fq '> Etapa 4/4: GitHub' <<<"$no_github_output"; then
+    ok '--no-github pula somente a integração GitHub'
+else
+    error '--no-github também pulou SSH ou manteve etapa GitHub'
+    controls_fail=1
+fi
+
+if help_output=$(bash install.sh --help 2>&1) \
+    && grep -Fq 'Uso: bash install.sh [opções]' <<<"$help_output" \
+    && ! grep -Fq 'baixando projeto completo' <<<"$help_output"; then
+    ok '--help encerra antes do bootstrap remoto'
+else
+    error '--help tentou bootstrap ou não mostrou a ajuda'
+    controls_fail=1
+fi
+
 if LEANIN_CI=1 bash install.sh >/dev/null 2>&1; then
     error 'LEANIN_CI=1 permitiu execução sem --dry-run/--plan'
     controls_fail=1
@@ -1061,7 +1088,8 @@ fi
 
 # A expressão é intencionalmente literal para validar o código-fonte.
 # shellcheck disable=SC2016
-if grep -Fq 'if (( failure_count == 0 )); then' install.sh \
+if grep -Fq 'elif (( DRY_RUN )); then' install.sh \
+    && grep -Fq "ok 'dry-run concluído'" install.sh \
     && grep -Fq 'error "concluído com $failure_count falha(s)"' install.sh \
     && grep -Fq 'summary_counts pacman' install.sh \
     && grep -Fq 'summary_counts serviços' install.sh; then
@@ -1349,6 +1377,15 @@ ssh_add_log="$ssh_test_home/ssh-add.log"
 mkdir -p "$fake_bin"
 cat >"$fake_bin/ssh-add" <<'EOF'
 #!/usr/bin/env bash
+if [[ -n ${SSH_ADD_MARKER:-} ]]; then
+    exec 3>>"$SSH_ADD_MARKER"
+    printf 'askpass=%s require=%s\n' "${SSH_ASKPASS-unset}" "${SSH_ASKPASS_REQUIRE-unset}" >&3
+    for fd in 0 1 2; do
+        printf 'fd%s=' "$fd" >&3
+        readlink "/proc/$$/fd/$fd" >&3
+    done
+    exec 3>&-
+fi
 printf 'Identity added: %s (mock)\n' "${1:-unknown}"
 EOF
 chmod +x "$fake_bin/ssh-add"
@@ -1368,14 +1405,50 @@ if ssh_add_output=$(HOME="$ssh_test_home" PATH="$fake_bin:$PATH" SSH_AUTH_SOCK=m
         LOG_FILE=$1
         FAILURES=()
         GIT_EMAIL=mock@example
+        # A regression test must never consult the terminal or answer.
+        ask_reconfigure() { return 1; }
+        _ssh_tty_path() { printf "%s" "$HOME/tty-unavailable"; }
         configure_ssh
     ' _ "$ssh_add_log" 2>&1) \
     && ! grep -Fq 'Identity added:' <<<"$ssh_add_output" \
     && ! grep -Fq 'ssh-keygen' <<<"$ssh_add_output" \
-    && grep -Fq 'Identity added:' "$ssh_add_log"; then
-    ok 'chave SSH existente é mantida e ssh-add fica silencioso'
+    && grep -Fq 'não há terminal disponível para adicionar a chave ao ssh-agent' <<<"$ssh_add_output" \
+    && [[ ! -e $ssh_add_log ]]; then
+    ok 'chave SSH existente é mantida sem chamar ssh-add fora do terminal'
 else
-    error 'chave SSH existente foi refeita ou ssh-add vazou saída bruta'
+    error 'chave SSH existente foi refeita ou ssh-add ignorou o terminal'
+    ((failures += 1))
+fi
+
+ssh_add_tty="$ssh_test_home/ssh-add.tty"
+ssh_add_marker="$ssh_test_home/ssh-add.marker"
+: >"$ssh_add_tty"
+: >"$ssh_add_marker"
+if ssh_add_tty_output=$(HOME="$ssh_test_home" PATH="$fake_bin:$PATH" SSH_AUTH_SOCK=mock \
+    SSH_ADD_MARKER="$ssh_add_marker" TTY_FILE="$ssh_add_tty" bash -c '
+        set -Eeuo pipefail
+        source lib/log
+        source lib/ask
+        source lib/env
+        source lib/run
+        source lib/ssh
+        DRY_RUN=0
+        VERBOSE=0
+        LOG_FILE=/dev/null
+        FAILURES=()
+        GIT_EMAIL=mock@example
+        ask_reconfigure() { return 1; }
+        _ssh_tty_path() { printf "%s" "$TTY_FILE"; }
+        configure_ssh
+    ' 2>&1) \
+    && ! grep -Fq 'Identity added:' <<<"$ssh_add_tty_output" \
+    && grep -Fqx 'askpass= require=never' "$ssh_add_marker" \
+    && grep -Fqx "fd0=$ssh_add_tty" "$ssh_add_marker" \
+    && grep -Fqx "fd1=$ssh_add_tty" "$ssh_add_marker" \
+    && grep -Fqx "fd2=$ssh_add_tty" "$ssh_add_marker"; then
+    ok 'ssh-add usa terminal dedicado e neutraliza askpass'
+else
+    error 'ssh-add não isolou a passphrase no terminal'
     ((failures += 1))
 fi
 
@@ -1506,7 +1579,8 @@ fi
 # A expressão precisa permanecer literal para validar os redirecionamentos.
 # shellcheck disable=SC2016
 if grep -Fq 'SSH_ASKPASS_REQUIRE=never' lib/ssh \
-    && grep -Fq '<"$tty" >"$tty" 2>"$tty"' lib/ssh; then
+    && grep -Fq 'exec {fd}<>"$tty"' lib/ssh \
+    && grep -Fq '<&"$fd" >&"$fd" 2>&"$fd"' lib/ssh; then
     ok 'geração SSH redireciona descritores para o terminal e neutraliza askpass'
 else
     error 'geração SSH não isola ssh-keygen do stdin do pipe'
@@ -1552,341 +1626,131 @@ else
     ((failures += 1))
 fi
 
-gh_marker="$ssh_test_home/gh-called"
-cat >"$fake_bin/gh" <<EOF
-#!/usr/bin/env bash
-touch "$gh_marker"
-exit 99
-EOF
-chmod +x "$fake_bin/gh"
-if github_dry_output=$(HOME="$ssh_test_home" PATH="$fake_bin:$PATH" bash -c '
-    source lib/log
-    source lib/ask
-    source lib/env
-    source lib/run
-    source lib/open
-    source lib/gh
-    DRY_RUN=1
-    VERBOSE=0
-    LOG_FILE=/dev/null
-    FAILURES=()
-    mkdir -p "$HOME/.ssh"
-    printf "ssh-ed25519 AAAATEST mock@example\n" >"$HOME/.ssh/test.pub"
-    github_manage_ssh_key "$HOME/.ssh/test.pub"
-' 2>&1) \
-    && [[ ! -e $gh_marker ]] \
-    && ! grep -Fq 'gh ssh-key delete' <<<"$github_dry_output" \
-    && ! grep -Fq 'gh ssh-key add' <<<"$github_dry_output"; then
-    ok 'dry-run não executa gh ssh-key delete/add'
-else
-    error 'dry-run invocou uma operação gh mutável'
-    ((failures += 1))
-fi
-
-mock_title=$(printf '%s' 'person laptop' | base64 -w0)
-mock_key=$(printf '%s' 'ssh-ed25519 AAAATEST mock@example' | base64 -w0)
-cat >"$fake_bin/gh" <<EOF
-#!/usr/bin/env bash
-case "\${GH_MOCK_MODE:-empty}" in
-    empty)
-        exit 0
-        ;;
-    one)
-        printf 'unexpected\tline\n'
-        printf '123\t%s\t%s\n' '$mock_title' '$mock_key'
-        ;;
-    fail)
-        printf 'mock API failure\n' >&2
-        exit 1
-        ;;
-    *)
-        exit 2
-        ;;
-esac
-EOF
-chmod +x "$fake_bin/gh"
-
-github_list_mock() {
-    local mode=$1
-    HOME="$ssh_test_home" PATH="$fake_bin:$PATH" GH_MOCK_MODE=$mode bash -c '
+github_api_backend_test() {
+    HOME="$ssh_test_home" GH_API_MARKER="$ssh_test_home/github-api.marker" bash -c '
         set -Eeuo pipefail
         source lib/log
+        source lib/env
         source lib/run
         source lib/gh
+        LOG_FILE=/dev/null
         DRY_RUN=0
         VERBOSE=0
-        LOG_FILE=/dev/null
-        FAILURES=()
-
-        case "$1" in
-            empty)
-                github_list_ssh_keys
-                ((${#GITHUB_KEY_IDS[@]} == 0))
-                ;;
-            one)
-                github_list_ssh_keys
-                ((${#GITHUB_KEY_IDS[@]} == 1))
-                [[ ${GITHUB_KEY_IDS[0]} == 123 ]]
-                [[ ${GITHUB_KEY_TITLES[0]} == "person laptop" ]]
-                [[ ${GITHUB_KEY_VALUES[0]} == "ssh-ed25519 AAAATEST mock@example" ]]
-                ;;
-            fail)
-                if github_list_ssh_keys; then
-                    exit 1
-                fi
-                ((${#GITHUB_KEY_IDS[@]} == 0))
-                [[ $GITHUB_OLD_KEYS_STATUS == "não verificadas" ]]
-                ;;
-        esac
-    ' _ "$mode"
-}
-
-if github_list_mock empty >/dev/null 2>&1 \
-    && github_list_mock one >/dev/null 2>&1 \
-    && github_list_mock fail >/dev/null 2>&1; then
-    ok 'listagem GitHub suporta API vazia, uma chave e falha controlada'
-else
-    error 'mock da listagem GitHub falhou sob set -u'
-    ((failures += 1))
-fi
-
-github_delete_mock() {
-    local answer=$1
-    local marker="$ssh_test_home/github-delete-$answer"
-    rm -f "$marker"
-    HOME="$ssh_test_home" ANSWER="$answer" MARKER="$marker" bash -c '
-        set -Eeuo pipefail
-        source lib/log
-        source lib/gh
-        VERBOSE=0
-        DRY_RUN=0
-        LOG_FILE=/dev/null
-        FAILURES=()
-        GITHUB_OLD_KEY_IDS=(123)
-        GITHUB_OLD_KEY_TITLES=("old key")
-        GITHUB_OLD_KEY_VALUES=("ssh-ed25519 AAAAOLD")
-        yesno() {
-            [[ $1 == "remover SSH keys antigas do GitHub que não são a chave atual?" ]]
-            [[ $2 == n ]]
-            [[ $ANSWER == yes ]]
+        mkdir -p "$HOME/.ssh"
+        public_key="$HOME/.ssh/id_ed25519.pub"
+        printf "ssh-ed25519 AAAACURRENT local@example\\n" >"$public_key"
+        GH_API_CURRENT="$HOME/.ssh/current-remote-key"
+        GH_API_OLD="$HOME/.ssh/old-remote-key"
+        : >"$GH_API_CURRENT"
+        : >"$GH_API_OLD"
+        : >"$GH_API_MARKER"
+        command_exists() { [[ $1 == gh ]]; }
+        gh() {
+            case "${1:-}:${2:-}:${3:-}:${4:-}" in
+                "auth:status::") return 0 ;;
+                "api:--silent:user/keys:") return 0 ;;
+                "api:--paginate:user/keys:--jq")
+                    printf "list\\n" >>"$GH_API_MARKER"
+                    if [[ -s $GH_API_CURRENT ]]; then
+                        printf "1\\t%s\\t%s\\n" \
+                            "$(printf current | base64 -w0)" \
+                            "$(base64 -w0 <"$GH_API_CURRENT")"
+                    fi
+                    if [[ -s $GH_API_OLD ]]; then
+                        printf "2\\t%s\\t%s\\n" \
+                            "$(printf old | base64 -w0)" \
+                            "$(base64 -w0 <"$GH_API_OLD")"
+                    fi
+                    ;;
+                "api:-X:POST:user/keys")
+                    for arg in "$@"; do
+                        [[ $arg == key=* ]] && printf "%s" "${arg#key=}" >"$GH_API_CURRENT"
+                    done
+                    [[ $(<"$GH_API_CURRENT") == "ssh-ed25519 AAAACURRENT local@example" ]]
+                    printf "post\\n" >>"$GH_API_MARKER"
+                    ;;
+                "api:-X:DELETE:user/keys/2")
+                    : >"$GH_API_OLD"
+                    printf "delete:2\\n" >>"$GH_API_MARKER"
+                    ;;
+                *) return 90 ;;
+            esac
         }
-        run_cmd() {
-            shift
-            printf "%s\n" "$*" >>"$MARKER"
-        }
+        [[ $(github_detect_state) == gh_key_api_available ]]
+        github_add_ssh_key "$public_key" "leanin-test"
+        [[ $GITHUB_NEW_KEY_STATUS == "cadastrada automaticamente" ]]
+        github_key_exists "$public_key"
+        printf "ssh-ed25519 AAAAOLD old@example" >"$GH_API_OLD"
+        github_list_ssh_keys
+        github_collect_old_ssh_keys "$public_key"
+        [[ ${#GITHUB_OLD_KEY_IDS[@]} == 1 && ${GITHUB_OLD_KEY_IDS[0]} == 2 ]]
+        yesno() { return 0; }
         github_delete_ssh_keys
-        if [[ $ANSWER == no ]]; then
-            [[ ! -e $MARKER ]]
-            [[ $GITHUB_OLD_KEYS_STATUS == mantidas ]]
-            ((${#GITHUB_OLD_KEY_IDS[@]} == 1))
-        else
-            grep -Fqx "gh ssh-key delete 123 --yes" "$MARKER"
-            [[ $GITHUB_OLD_KEYS_STATUS == removidas ]]
-            ((${#GITHUB_OLD_KEY_IDS[@]} == 0))
-        fi
+        grep -Fqx post "$GH_API_MARKER"
+        grep -Fqx delete:2 "$GH_API_MARKER"
+        [[ $(grep -Fc list "$GH_API_MARKER") -ge 2 ]]
     '
 }
 
-if github_delete_mock no >/dev/null 2>&1 \
-    && github_delete_mock yes >/dev/null 2>&1; then
-    ok 'limpeza GitHub respeita respostas não e sim'
+if github_api_backend_test >/dev/null 2>&1 \
+    && grep -Fq 'gh api --paginate user/keys' lib/gh \
+    && grep -Fq 'gh api -X POST user/keys' lib/gh \
+    && grep -Fq "gh api -X DELETE \"user/keys/\$id\"" lib/gh \
+    && grep -Fq '_github_key_material' lib/gh \
+    && ! grep -Fq 'ssh_signing_keys' lib/gh \
+    && ! grep -Eq '^[[:space:]]*gh[[:space:]]+ssh-key[[:space:]]+list' lib/gh \
+    && grep -Fq 'if github_ssh_registration_ready; then' install.sh \
+    && grep -Fq 'test_github_ssh || true' install.sh; then
+    ok 'GitHub usa API user/keys, confirma a chave e isola chaves de assinatura'
 else
-    error 'limpeza GitHub não respeitou confirmação s/N'
+    error 'backend GitHub user/keys não está completo'
     ((failures += 1))
 fi
 
-if HOME="$ssh_test_home" bash -c '
-    set -Eeuo pipefail
-    source lib/log
-    source lib/ask
-    source lib/gh
-    ASSUME_YES=1
-    VERBOSE=0
-    DRY_RUN=0
-    LOG_FILE=/dev/null
-    FAILURES=()
-    GITHUB_OLD_KEY_IDS=(123)
-    GITHUB_OLD_KEY_TITLES=(old)
-    GITHUB_OLD_KEY_VALUES=("ssh-ed25519 AAAAOLD")
-    run_cmd() { exit 90; }
-    github_delete_ssh_keys
-    [[ $GITHUB_OLD_KEYS_STATUS == mantidas ]]
-    ((${#GITHUB_OLD_KEY_IDS[@]} == 1))
-' >/dev/null 2>&1; then
-    ok '--yes não remove SSH keys antigas do GitHub'
-else
-    error '--yes confirmou remoção de SSH keys antigas'
-    ((failures += 1))
-fi
-
-if HOME="$ssh_test_home" bash -c '
-    set -Eeuo pipefail
-    source lib/log
-    source lib/ask
-    source lib/gh
-    ASSUME_YES=1
-    DRY_RUN=0
-    LOG_FILE=/dev/null
-    FAILURES=()
-    GITHUB_KEY_VALUES=()
-    printf "ssh-ed25519 AAAATEST mock@example\n" >"$HOME/.ssh/test.pub"
-    run_cmd() { exit 90; }
-    github_register_ssh_key "$HOME/.ssh/test.pub"
-    [[ $GITHUB_NEW_KEY_STATUS == pulada ]]
-' >/dev/null 2>&1; then
-    ok '--yes não recadastra chave GitHub local existente'
-else
-    error '--yes tentou recadastrar chave GitHub existente'
-    ((failures += 1))
-fi
-
-github_prompt_order_mock() {
-    local scenario='' marker='' output=''
-    scenario=$1
-    marker="$ssh_test_home/github-order-$scenario"
-    rm -f "$marker.title" "$marker.add"
-    if ! output=$(HOME="$ssh_test_home" SCENARIO="$scenario" MARKER="$marker" bash -c '
+clipboard_mock() {
+    local scenario=$1 fake_clipboard="$ssh_test_home/clipboard-$1" output=''
+    rm -f "$fake_clipboard"
+    if [[ $scenario != none ]]; then
+        cat >"$fake_bin/wl-copy" <<EOF
+#!/usr/bin/env bash
+cat >/dev/null
+[[ $scenario == success ]]
+EOF
+        chmod +x "$fake_bin/wl-copy"
+    else
+        rm -f "$fake_bin/wl-copy"
+    fi
+    output=$(HOME="$ssh_test_home" PATH="$fake_bin:$PATH" SCENARIO="$scenario" bash -c '
         set -Eeuo pipefail
         source lib/log
-        source lib/ask
-        source lib/gh
-        VERBOSE=0
+        source lib/ssh
         DRY_RUN=0
         LOG_FILE=/dev/null
-        FAILURES=()
+        SSH_PUBLIC_KEY="$HOME/.ssh/clipboard.pub"
         mkdir -p "$HOME/.ssh"
-        public_key="$HOME/.ssh/test.pub"
-        printf "ssh-ed25519 AAAACURRENT mock@example\n" >"$public_key"
-        _github_gh_ready() { return 0; }
-        github_list_ssh_keys() { return 0; }
-        prompt() {
-            : >"$MARKER.title"
-            printf -v "$1" "%s" "chosen title"
-        }
-        run_cmd() {
-            printf "%s\n" "$*" >"$MARKER.add"
-            return 0
-        }
-
-        case "$SCENARIO" in
-            existing)
-                GITHUB_KEY_IDS=(10 20)
-                GITHUB_KEY_TITLES=(current old)
-                GITHUB_KEY_VALUES=("ssh-ed25519 AAAACURRENT remote" "ssh-ed25519 AAAAOLD remote")
-                yesno() {
-                    [[ $1 == "remover SSH keys antigas do GitHub que não são a chave atual?" ]]
-                    [[ $2 == n ]]
-                    return 1
-                }
-                ;;
-            absent-no)
-                GITHUB_KEY_IDS=()
-                GITHUB_KEY_TITLES=()
-                GITHUB_KEY_VALUES=()
-                yesno() {
-                    [[ $1 == "cadastrar esta chave no GitHub?" ]]
-                    [[ $2 == n ]]
-                    return 1
-                }
-                ;;
-            absent-yes)
-                GITHUB_KEY_IDS=()
-                GITHUB_KEY_TITLES=()
-                GITHUB_KEY_VALUES=()
-                yesno() {
-                    [[ $1 == "cadastrar esta chave no GitHub?" ]]
-                    [[ $2 == n ]]
-                    return 0
-                }
-                ;;
-            yes-safe)
-                ASSUME_YES=1
-                GITHUB_KEY_IDS=(20)
-                GITHUB_KEY_TITLES=(old)
-                GITHUB_KEY_VALUES=("ssh-ed25519 AAAAOLD remote")
-                ;;
-            dry-existing)
-                DRY_RUN=1
-                GITHUB_KEY_IDS=(10)
-                GITHUB_KEY_TITLES=(current)
-                GITHUB_KEY_VALUES=("ssh-ed25519 AAAACURRENT remote")
-                ;;
-            dry-new)
-                DRY_RUN=1
-                GITHUB_KEY_IDS=()
-                GITHUB_KEY_TITLES=()
-                GITHUB_KEY_VALUES=()
-                ;;
-        esac
-        github_manage_ssh_key "$public_key"
-        case "$SCENARIO" in
-            existing)
-                [[ $GITHUB_NEW_KEY_STATUS == "já existia" ]]
-                [[ $GITHUB_OLD_KEYS_STATUS == mantidas ]]
-                [[ ! -e $MARKER.title && ! -e $MARKER.add ]]
-                ;;
-            absent-no)
-                [[ $GITHUB_NEW_KEY_STATUS == pulada ]]
-                [[ ! -e $MARKER.title && ! -e $MARKER.add ]]
-                ;;
-            absent-yes)
-                [[ -e $MARKER.title && -e $MARKER.add ]]
-                grep -Fq "gh ssh-key add $public_key --title chosen title --type authentication" "$MARKER.add"
-                [[ $GITHUB_NEW_KEY_STATUS == "cadastrada automaticamente via gh" ]]
-                ;;
-            yes-safe)
-                [[ $GITHUB_NEW_KEY_STATUS == pulada ]]
-                [[ $GITHUB_OLD_KEYS_STATUS == mantidas ]]
-                [[ ! -e $MARKER.title && ! -e $MARKER.add ]]
-                ;;
-            dry-existing)
-                [[ $GITHUB_NEW_KEY_STATUS == "já existia" ]]
-                [[ ! -e $MARKER.title && ! -e $MARKER.add ]]
-                ;;
-            dry-new)
-                [[ $GITHUB_NEW_KEY_STATUS == dry-run ]]
-                [[ ! -e $MARKER.title && ! -e $MARKER.add ]]
-                ;;
-        esac
-    ' 2>&1); then
-        return 1
-    fi
+        printf "ssh-ed25519 AAAACLIP mock@example\\n" >"$SSH_PUBLIC_KEY"
+        if [[ $SCENARIO == none ]]; then
+            command_exists() { return 1; }
+        else
+            command_exists() { [[ $1 == wl-copy ]]; }
+        fi
+        print_pubkey
+    ' 2>&1) || return 1
     case $scenario in
-        existing)
-            grep -Fq '[skip] SSH keys antigas mantidas' <<<"$output" \
-                && grep -Fq '[skip] chave GitHub já cadastrada' <<<"$output" \
-                && ! grep -Fq 'título da chave no GitHub' <<<"$output"
+        success)
+            grep -Fq '[ok] chave pública copiada para o clipboard' <<<"$output"
             ;;
-        absent-no)
-            grep -Fq '[skip] cadastro da chave GitHub pulado' <<<"$output" \
-                && ! grep -Fq 'título da chave no GitHub' <<<"$output"
-            ;;
-        absent-yes)
-            grep -Fq 'chave GitHub cadastrada: chosen title' <<<"$output"
-            ;;
-        yes-safe)
-            ! grep -Fq 'título da chave no GitHub' <<<"$output"
-            ;;
-        dry-existing)
-            grep -Fq '[skip] chave GitHub já cadastrada' <<<"$output" \
-                && ! grep -Fq 'título da chave no GitHub' <<<"$output"
-            ;;
-        dry-new)
-            grep -Fq '[dry-run] perguntaria se deve cadastrar chave no GitHub' <<<"$output" \
-                && grep -Fq '[dry-run] perguntaria título da chave somente se cadastro fosse confirmado' <<<"$output"
+        none|failure)
+            grep -Fq '[info] clipboard indisponível; copie a chave manualmente' <<<"$output" \
+                && ! grep -Fq '[ok] chave pública copiada para o clipboard' <<<"$output"
             ;;
     esac
 }
 
-if github_prompt_order_mock existing \
-    && github_prompt_order_mock absent-no \
-    && github_prompt_order_mock absent-yes \
-    && github_prompt_order_mock yes-safe \
-    && github_prompt_order_mock dry-existing \
-    && github_prompt_order_mock dry-new; then
-    ok 'fluxo GitHub separa remoção, cadastro e título da chave'
+if clipboard_mock none && clipboard_mock failure && clipboard_mock success; then
+    ok 'clipboard só confirma cópia quando o comando funciona'
 else
-    error 'ordem de prompts GitHub SSH não respeita o cadastro real da chave'
+    error 'estado do clipboard não reflete o resultado do comando'
     ((failures += 1))
 fi
 
@@ -2110,6 +1974,13 @@ troubleshooting_tokens=(
     'ssh -T git@github.com'
     'tail -n 120 ~/.local/state/leanin/logs/FILE.log'
     'safe default'
+    'supervised same-terminal flow'
+    '/dev/tty'
+    'gh api user/keys'
+    'admin:public_key'
+    'gh auth login -h github.com -p ssh -s admin:public_key --web'
+    'gh auth refresh -h github.com -s admin:public_key'
+    'SSH signing-key API'
 )
 for token in "${troubleshooting_tokens[@]}"; do
     if ! grep -Fiq "$token" docs/TROUBLESHOOTING.md; then

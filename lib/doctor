@@ -110,20 +110,35 @@ _doctor_tools() {
 }
 
 _doctor_github() {
-    local ssh_output='' ssh_status=0
+    local ssh_output='' ssh_status=0 ssh_key_present=0 remote_keys=''
 
     if command_exists gh; then
         if gh auth status >/dev/null 2>&1; then
             ok 'GitHub CLI autenticado'
+            if gh api --silent user/keys >/dev/null 2>&1; then
+                ok 'GitHub API de chaves SSH disponível'
+            else
+                warn 'GitHub API de chaves SSH indisponível'
+                info 'corrija: gh auth refresh -h github.com -s admin:public_key'
+            fi
         else
-            info 'GitHub CLI não autenticado; use: gh auth login'
+            warn 'GitHub CLI não autenticado'
+            info 'login: gh auth login -h github.com -p ssh -s admin:public_key --web'
+            info 'GitHub SSH key management pendente'
         fi
     else
         info 'GitHub CLI não disponível'
+        info 'GitHub SSH key management pendente'
     fi
 
     if [[ -f $HOME/.ssh/id_ed25519.pub ]]; then
+        ssh_key_present=1
         ok 'chave SSH local: ~/.ssh/id_ed25519.pub'
+        if gh auth status >/dev/null 2>&1 \
+            && remote_keys=$(gh api user/keys --jq '.[].key' 2>/dev/null) \
+            && grep -Fxq "$(<"$HOME/.ssh/id_ed25519.pub")" <<<"$remote_keys"; then
+            ok 'chave SSH local registrada no GitHub'
+        fi
     else
         info 'SSH key padrão não encontrada'
     fi
@@ -139,8 +154,10 @@ _doctor_github() {
             || $ssh_output == *"You've successfully authenticated"* \
             || $ssh_output == *'does not provide shell access'* ]]; then
             ok 'SSH GitHub'
+        elif (( ! ssh_key_present )) || [[ $ssh_output == *'Permission denied (publickey)'* ]]; then
+            info 'SSH GitHub pendente; registre a chave pública no GitHub'
         else
-            info "SSH GitHub não confirmado (código $ssh_status)"
+            info "SSH GitHub falhou (código $ssh_status)"
         fi
     else
         info 'teste SSH GitHub pulado'
