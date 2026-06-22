@@ -48,13 +48,17 @@ _github_run_auth_interactive() {
         warn 'não há terminal disponível para autenticação interativa do GitHub'
         return 1
     fi
+    info 'o GitHub pode abrir um fluxo de autenticação no navegador'
+    info 'se aparecer um código único, copie, autentique e volte para este terminal'
+    info 'se o GitHub CLI pedir Enter, pressione Enter neste terminal'
+    info 'transferindo o controle para o GitHub CLI...'
     _log_command "$@"
     (( VERBOSE )) && _print_command "$@"
     set +e
     if command_exists timeout; then
         # /dev/tty is the interactive terminal, not a regular data file.
         # shellcheck disable=SC2094
-        timeout 300 "$@" <"$tty" >"$tty" 2>"$tty"
+        timeout 600 "$@" <"$tty" >"$tty" 2>"$tty"
     else
         # /dev/tty is the interactive terminal, not a regular data file.
         # shellcheck disable=SC2094
@@ -62,8 +66,10 @@ _github_run_auth_interactive() {
     fi
     status=$?
     set -e
+    info 'GitHub CLI retornou; verificando permissões'
     if (( status == 124 )); then
-        warn 'autenticação GitHub expirou após 300 segundos'
+        warn 'autenticação GitHub não terminou a tempo'
+        info 'execute manualmente: gh auth refresh -h github.com -s admin:public_key'
     elif (( status != 0 )); then
         warn "$label falhou"
     fi
@@ -71,13 +77,21 @@ _github_run_auth_interactive() {
 }
 
 _github_login_with_ssh_permissions() {
-    info 'GitHub pode abrir o navegador ou mostrar um código de dispositivo'
+    if _github_run_auth_interactive 'autenticação GitHub' \
+        gh auth login -h github.com -p ssh -s admin:public_key --web --clipboard; then
+        return 0
+    fi
+    info 'tentando autenticação GitHub sem clipboard'
     _github_run_auth_interactive 'autenticação GitHub' \
-        gh auth login -h github.com -p ssh -s admin:public_key
+        gh auth login -h github.com -p ssh -s admin:public_key --web
 }
 
 _github_refresh_ssh_key_permissions() {
-    info 'GitHub pode abrir o navegador ou mostrar um código de dispositivo'
+    if _github_run_auth_interactive 'atualização de permissões GitHub' \
+        gh auth refresh -h github.com -s admin:public_key --clipboard; then
+        return 0
+    fi
+    info 'tentando atualização de permissões sem clipboard'
     _github_run_auth_interactive 'atualização de permissões GitHub' \
         gh auth refresh -h github.com -s admin:public_key
 }
@@ -368,7 +382,7 @@ github_manage_ssh_key() {
 
     if (( DRY_RUN )); then
         printf '> [dry-run] listaria SSH keys cadastradas no GitHub\n'
-        printf '> [dry-run] autenticaria GitHub CLI com admin:public_key\n'
+        printf '> [dry-run] executaria autenticação GitHub CLI no navegador/dispositivo com admin:public_key\n'
         if ((${#GITHUB_KEY_VALUES[@]})) && github_key_exists "$public_key"; then
             skip 'chave GitHub já cadastrada'
             GITHUB_NEW_KEY_STATUS='já existia'
@@ -442,7 +456,7 @@ configure_gh() {
     fi
     if (( DRY_RUN )); then
         dry_run_msg gh auth status
-        printf '> [dry-run] autenticaria GitHub CLI com admin:public_key\n'
+        printf '> [dry-run] executaria autenticação GitHub CLI no navegador/dispositivo com admin:public_key\n'
         return 0
     fi
     if (( GH_AUTH_READY )); then

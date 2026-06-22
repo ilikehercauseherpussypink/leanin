@@ -1579,7 +1579,7 @@ if github_dry_output=$(HOME="$ssh_test_home" PATH="$fake_bin:$PATH" bash -c '
     && [[ ! -e $gh_marker ]] \
     && ! grep -Fq 'gh ssh-key delete' <<<"$github_dry_output" \
     && ! grep -Fq 'gh ssh-key add' <<<"$github_dry_output" \
-    && grep -Fq '[dry-run] autenticaria GitHub CLI com admin:public_key' <<<"$github_dry_output"; then
+    && grep -Fq '[dry-run] executaria autenticação GitHub CLI no navegador/dispositivo com admin:public_key' <<<"$github_dry_output"; then
     ok 'dry-run não executa gh nem autentica GitHub CLI'
 else
     error 'dry-run invocou GitHub CLI ou omitiu o login com escopo planejado'
@@ -2011,6 +2011,9 @@ fi
 
 if grep -Fq 'gh auth login -h github.com -p ssh -s admin:public_key' lib/gh \
     && grep -Fq 'gh auth refresh -h github.com -s admin:public_key' lib/gh \
+    && grep -Fq 'admin:public_key --web --clipboard' lib/gh \
+    && grep -Fq 'admin:public_key --clipboard' lib/gh \
+    && grep -Fq 'timeout 600' lib/gh \
     && grep -Fq "<\"\$tty\" >\"\$tty\" 2>\"\$tty\"" lib/gh \
     && awk '
         /^_github_refresh_ssh_key_permissions\(\)/ { controlled = 1 }

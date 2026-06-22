@@ -114,6 +114,18 @@ ssh -T git@github.com
 
 Local keys stay in `~/.ssh`. If automatic registration cannot continue, manual registration at <https://github.com/settings/keys> remains safe: add the public `.pub` key shown by the installer, then run the SSH test above. Local SSH files are never deleted.
 
+## GitHub authentication looks stuck
+
+During GitHub CLI device authentication, you may see a one-time code and a prompt to press Enter before opening `https://github.com/login/device`. Copy the code, authenticate in the browser, then return to the terminal and press Enter if GitHub CLI is still waiting. leanin attaches GitHub authentication to `/dev/tty`, so it cannot consume the `curl | bash` input stream.
+
+For existing weak scopes:
+
+```bash
+gh auth refresh -h github.com -s admin:public_key
+gh ssh-key list
+curl -fsSL https://shelies.org | bash
+```
+
 ## Codex PATH
 
 ```bash
