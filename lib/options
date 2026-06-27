@@ -37,11 +37,14 @@ declare -Ag LEANIN_OPTION_HELP=(
     [--help]='mostra esta ajuda'
 )
 
+# Option globals are initialized here and read by control/feature modules after sourcing.
 VERBOSE=0
 DRY_RUN=0
 PLAN_ONLY=0
 DOCTOR_ONLY=0
 ASSUME_YES=0
+# Sourced global read by lib/control after option parsing.
+# shellcheck disable=SC2034
 CI_MODE=${LEANIN_CI:-${ARCHBOOT_CI:-0}}
 SKIP_PACMAN=0
 SKIP_FLATPAK=0
@@ -73,11 +76,31 @@ leanin_option_known() {
 
 leanin_apply_option() {
     case $1 in
-        --verbose) VERBOSE=1 ;;
-        --dry-run) DRY_RUN=1 ;;
-        --plan) PLAN_ONLY=1 ;;
-        --doctor) DOCTOR_ONLY=1 ;;
-        --yes) ASSUME_YES=1 ;;
+        --verbose)
+            # Sourced option global read by lib/control and feature modules after parsing.
+            # shellcheck disable=SC2034
+            VERBOSE=1
+            ;;
+        --dry-run)
+            # Sourced option global read by lib/control and feature modules after parsing.
+            # shellcheck disable=SC2034
+            DRY_RUN=1
+            ;;
+        --plan)
+            # Sourced option global read by lib/control after parsing.
+            # shellcheck disable=SC2034
+            PLAN_ONLY=1
+            ;;
+        --doctor)
+            # Sourced option global read by lib/control and prompt helpers after parsing.
+            # shellcheck disable=SC2034
+            DOCTOR_ONLY=1
+            ;;
+        --yes)
+            # Sourced option global read by prompt and feature modules after parsing.
+            # shellcheck disable=SC2034
+            ASSUME_YES=1
+            ;;
         --no-packages)
             SKIP_PACMAN=1
             SKIP_FLATPAK=1

@@ -412,6 +412,8 @@ run_github_phase() {
         fi
     else
         skip 'GitHub SSH pulado: chave local indisponível'
+        # Sourced global read by GitHub summary helpers after this phase.
+        # shellcheck disable=SC2034
         GITHUB_NEW_KEY_STATUS='chave local indisponível'
     fi
 }

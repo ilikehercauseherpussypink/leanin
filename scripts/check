@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/checks/common"
+CHECK_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/checks" && pwd)
+# shellcheck source=scripts/checks/common
+source "$CHECK_DIR/common"
 source "$ROOT/scripts/checks/structure"
 source "$ROOT/scripts/checks/bash-syntax"
 source "$ROOT/scripts/checks/lists"
