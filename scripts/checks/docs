@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 step 8 11 'validando documentação'
 docs_fail=0
 readme_tokens=(

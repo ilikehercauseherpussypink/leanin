@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 step 9 11 'validando GitHub Actions'
 workflow=.github/workflows/check.yml
 workflow_fail=0

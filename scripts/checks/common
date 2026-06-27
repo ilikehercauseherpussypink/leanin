@@ -11,6 +11,9 @@ step()  { printf '\n> Etapa %s/%s: %s\n' "$1" "$2" "$3"; }
 failures=0
 ssh_test_home=$(mktemp -d)
 trap 'rm -rf -- "$ssh_test_home"' EXIT
+# Shared array populated by scripts/checks/bash-syntax and consumed by scripts/checks/shellcheck.
+# shellcheck disable=SC2034
+declare -ag bash_files=()
 
 check_file() {
     if [[ ! -f $1 ]]; then

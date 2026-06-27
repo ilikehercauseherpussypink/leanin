@@ -1,5 +1,9 @@
+# shellcheck shell=bash
 step 11 11 'executando shellcheck'
 if command -v shellcheck >/dev/null 2>&1; then
+    # bash_files is populated by scripts/checks/bash-syntax before this module is sourced.
+    # shellcheck disable=SC2154
+    bash_files=("${bash_files[@]}")
     if shellcheck -x "${bash_files[@]}"; then
         ok 'shellcheck'
     else

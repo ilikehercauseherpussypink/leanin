@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 step 4 11 'validando repositório'
 
 # Os padrões abaixo verificam texto-fonte literal, sem expansão nesta execução.

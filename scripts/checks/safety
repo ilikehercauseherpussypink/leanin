@@ -1,4 +1,7 @@
+# shellcheck shell=bash
 step 5 11 'validando regras de segurança'
+# Shared temporary home initialized by scripts/checks/common before this module is sourced.
+ssh_test_home=${ssh_test_home:?}
 forbidden_step=$(printf '%s%s' '==' '>')
 if grep -RFn --exclude-dir=.git -- "$forbidden_step" . >/dev/null 2>&1; then
     error "prefixo proibido encontrado: $forbidden_step"

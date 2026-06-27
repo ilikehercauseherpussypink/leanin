@@ -1,4 +1,7 @@
+# shellcheck shell=bash
 step 10 11 'validando Cloudflare Worker'
+# Shared temporary home initialized by scripts/checks/common before this module is sourced.
+ssh_test_home=${ssh_test_home:?}
 worker=cloudflare/worker.js
 worker_fail=0
 worker_tokens=(

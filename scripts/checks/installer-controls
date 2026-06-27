@@ -1,4 +1,7 @@
+# shellcheck shell=bash
 step 7 11 'validando controles do instalador'
+# Shared temporary home initialized by scripts/checks/common before this module is sourced.
+ssh_test_home=${ssh_test_home:?}
 controls_fail=0
 if version_output=$(bash install.sh --version 2>&1) \
     && piped_version_output=$(set -o pipefail; sed -n p install.sh | bash -s -- --version) \

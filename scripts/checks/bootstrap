@@ -1,4 +1,7 @@
+# shellcheck shell=bash
 step 6 11 'validando bootstrap remoto'
+# Shared temporary home initialized by scripts/checks/common before this module is sourced.
+ssh_test_home=${ssh_test_home:?}
 # Os tokens verificam texto-fonte literal, sem expansão nesta execução.
 # shellcheck disable=SC2016
 bootstrap_tokens=(
