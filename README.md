@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ilikehercauseherpussypink/leanin/actions">CI</a> |
+  <a href="https://github.com/uswl/leanin/actions">CI</a> |
   <a href="CHANGELOG.md">v0.1.1</a> |
   <a href="LICENSE">MIT</a>
 </p>
@@ -124,7 +124,7 @@ bash install.sh
 ## local development
 
 ```bash
-git clone https://github.com/ilikehercauseherpussypink/leanin
+git clone https://github.com/uswl/leanin
 cd leanin
 bash scripts/check
 bash install.sh --dry-run
@@ -135,6 +135,7 @@ bash install.sh --dry-run
 * [Troubleshooting](docs/TROUBLESHOOTING.md)
 * [Apps and customization](docs/APPS.md)
 * [Safety notes](docs/SAFETY.md)
+* [Architecture](docs/ARCHITECTURE.md)
 * [Cloudflare Worker](cloudflare/README.md)
 * [Changelog](CHANGELOG.md)
 

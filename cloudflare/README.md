@@ -3,7 +3,7 @@
 The Worker serves `install.sh` from GitHub through a short domain. It does not modify the script or run installer logic.
 
 * Custom domain: `https://shelies.org`
-* Upstream repository: `https://github.com/ilikehercauseherpussypink/leanin`
+* Upstream repository: `https://github.com/uswl/leanin`
 
 The Worker has no secrets. `OWNER`, `REPO`, and `BRANCH` come from Worker variables or the defaults in `worker.js`. Query strings cannot change them.
 

@@ -1,195 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-cd "$ROOT"
-
-ok()    { printf '> [ok] %s\n' "$*"; }
-skip()  { printf '> [skip] %s\n' "$*"; }
-error() { printf '> [error] %s\n' "$*" >&2; }
-step()  { printf '\n> Etapa %s/%s: %s\n' "$1" "$2" "$3"; }
-
-failures=0
-
-check_file() {
-    if [[ ! -f $1 ]]; then
-        error "arquivo ausente: $1"
-        ((failures += 1))
-    elif [[ ! -s $1 ]]; then
-        error "arquivo obrigatório vazio: $1"
-        ((failures += 1))
-    else
-        ok "$1"
-    fi
-}
-
-app_lines() {
-    local file=$1 line
-    while IFS= read -r line || [[ -n $line ]]; do
-        line=${line#"${line%%[![:space:]]*}"}
-        [[ -z $line || $line == \#* ]] && continue
-        line=${line%%[[:space:]]#*}
-        line=${line%"${line##*[![:space:]]}"}
-        [[ -n $line ]] && printf '%s\n' "$line"
-    done <"$file"
-}
-
-step 1 10 'validando estrutura'
-required=(
-    install.sh README.md CHANGELOG.md LICENSE .gitignore
-    docs/TROUBLESHOOTING.md docs/APPS.md docs/SAFETY.md docs/assets/leanin.svg
-    .github/workflows/check.yml
-    scripts/check scripts/github
-    cloudflare/worker.js cloudflare/wrangler.toml.example cloudflare/README.md
-    lib/log lib/ask lib/env lib/doctor lib/run lib/pkg lib/flatpak lib/aur lib/apps lib/service
-    lib/git lib/ssh lib/gh lib/codex
-    apps/pacman/base apps/pacman/dev apps/pacman/browsers apps/pacman/audio
-    apps/pacman/privacy apps/pacman/system
-    apps/flatpak/chat apps/flatpak/media apps/flatpak/mail
-    apps/flatpak/privacy apps/flatpak/tools apps/flatpak/games
-    apps/aur/browsers apps/aur/privacy apps/aur/media apps/aur/tools
-    services/system services/user
-)
-for file in "${required[@]}"; do
-    check_file "$file"
-done
-for file in install.sh scripts/check scripts/github; do
-    if [[ -x $file ]] && head -n 1 "$file" | grep -Fqx '#!/usr/bin/env bash'; then
-        ok "$file é executável com shebang Bash"
-    else
-        error "$file precisa ser executável com shebang Bash"
-        ((failures += 1))
-    fi
-done
-
-step 2 10 'validando sintaxe Bash'
-mapfile -t bash_files < <(printf '%s\n' install.sh scripts/check scripts/github; find lib -maxdepth 1 -type f | sort)
-for file in "${bash_files[@]}"; do
-    if bash -n "$file"; then
-        ok "bash -n $file"
-    else
-        error "sintaxe inválida: $file"
-        ((failures += 1))
-    fi
-done
-
-step 3 10 'validando listas de apps'
-flatpak_pattern='^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){2,}$'
-package_pattern='^[A-Za-z0-9@._+-]+$'
-declare -A seen_apps=()
-for file in apps/flatpak/*; do
-    while IFS= read -r app; do
-        if [[ $app == @openai/codex ]]; then
-            error "$file contém @openai/codex"
-            ((failures += 1))
-        elif [[ ! $app =~ $flatpak_pattern ]]; then
-            if ! grep -Fq "$app # leanin: allow-simple" "$file"; then
-                error "$file contém ID Flatpak improvável: $app"
-                ((failures += 1))
-            fi
-        elif [[ -n ${seen_apps["flatpak:$app"]:-} ]]; then
-            error "$file duplica $app já listado em ${seen_apps["flatpak:$app"]}"
-            ((failures += 1))
-        else
-            seen_apps["flatpak:$app"]=$file
-        fi
-    done < <(app_lines "$file")
-done
-for source in pacman aur; do
-    for file in "apps/$source"/*; do
-        while IFS= read -r app; do
-            if [[ $app == @openai/codex ]]; then
-                error "$file contém @openai/codex"
-                ((failures += 1))
-            elif [[ $app =~ $flatpak_pattern ]]; then
-                error "$file parece conter ID Flatpak: $app"
-                ((failures += 1))
-            elif [[ ! $app =~ $package_pattern ]]; then
-                error "$file contém pacote com formato inválido: $app"
-                ((failures += 1))
-            elif [[ -n ${seen_apps["$source:$app"]:-} ]]; then
-                error "$file duplica $app já listado em ${seen_apps["$source:$app"]}"
-                ((failures += 1))
-            else
-                seen_apps["$source:$app"]=$file
-            fi
-        done < <(app_lines "$file")
-    done
-done
-if grep -Fxq 'org.vinegarhq.Sober' apps/flatpak/games \
-    && ! grep -RFx 'org.vinegarhq.Sober' apps/pacman apps/aur >/dev/null 2>&1; then
-    ok 'Sober está somente na categoria Flatpak games'
-else
-    error 'Sober precisa estar apenas em apps/flatpak/games'
-    ((failures += 1))
-fi
-if bash -c '
-    set -Eeuo pipefail
-    source lib/log
-    source lib/apps
-    LEANIN_ROOT=$1
-    LOG_FILE=/dev/null
-    read_pacman
-    [[ ${#PACMAN_APPS[@]} == 11 ]]
-    read_flatpak
-    read_aur
-    read_pacman
-    [[ ${#PACMAN_APPS[@]} == 11 ]]
-    [[ ${#FLATPAK_APPS[@]} == 6 ]]
-    [[ ${#AUR_APPS[@]} == 3 ]]
-' _ "$ROOT" >/dev/null 2>&1; then
-    ok 'leitura de apps é idempotente por fonte'
-else
-    error 'leitura repetida de apps duplicou ou perdeu entradas'
-    ((failures += 1))
-fi
-if ! bash -c '
-    set -Eeuo pipefail
-    source lib/apps
-    _app_item_valid pacman "bad;package"
-' >/dev/null 2>&1 \
-    && ! bash -c '
-        set -Eeuo pipefail
-        source lib/apps
-        _app_item_valid aur "bad package"
-    ' >/dev/null 2>&1 \
-    && ! bash -c '
-        set -Eeuo pipefail
-        source lib/apps
-        _app_item_valid flatpak "not-a-flatpak"
-    ' >/dev/null 2>&1; then
-    ok 'parser rejeita entradas de apps inseguras ou improváveis'
-else
-    error 'parser aceitou entrada de app inválida'
-    ((failures += 1))
-fi
-for file in services/system services/user; do
-    declare -A seen_services=()
-    while IFS= read -r service; do
-        if [[ ! $service =~ ^[A-Za-z0-9@_.:-]+\.service$ ]]; then
-            error "$file contém serviço com formato inválido: $service"
-            ((failures += 1))
-        elif [[ -n ${seen_services["$service"]:-} ]]; then
-            error "$file duplica serviço: $service"
-            ((failures += 1))
-        else
-            seen_services["$service"]=1
-        fi
-    done < <(app_lines "$file")
-done
-(( failures == 0 )) && ok 'listas de apps válidas'
-if grep -Fxq easyeffects apps/pacman/audio; then
-    ok 'EasyEffects está na categoria pacman/audio'
-else
-    error 'EasyEffects ausente de apps/pacman/audio'
-    ((failures += 1))
-fi
-if grep -Fxq mullvad-daemon.service services/system; then
-    ok 'mullvad-daemon.service está em services/system'
-else
-    error 'mullvad-daemon.service ausente de services/system'
-    ((failures += 1))
-fi
+CHECK_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/checks" && pwd)
+# shellcheck source=scripts/checks/common
+source "$CHECK_DIR/common"
+source "$ROOT/scripts/checks/structure"
+source "$ROOT/scripts/checks/bash-syntax"
+source "$ROOT/scripts/checks/lists"
 
 step 4 10 'validando regras de segurança'
 forbidden_step=$(printf '%s%s' '==' '>')
@@ -207,18 +24,18 @@ else
 fi
 # Os padrões abaixo verificam texto-fonte literal, sem expansão nesta execução.
 # shellcheck disable=SC2016
-if grep -Fq 'LEANIN_REPO=https://github.com/ilikehercauseherpussypink/leanin' install.sh \
+if grep -Fq 'LEANIN_REPO=https://github.com/uswl/leanin' install.sh \
     && grep -Fq 'LEANIN_BRANCH=main' install.sh \
-    && grep -Fq 'CI_MODE=${LEANIN_CI:-${ARCHBOOT_CI:-0}}' install.sh; then
+    && grep -Fq 'CI_MODE=${LEANIN_CI:-${ARCHBOOT_CI:-0}}' lib/options; then
     ok 'bootstrap remoto aponta para o repositório publicado'
 else
-    error 'default LEANIN_REPO não aponta para ilikehercauseherpussypink/leanin'
+    error 'default LEANIN_REPO não aponta para uswl/leanin'
     ((failures += 1))
 fi
 # shellcheck disable=SC2016
 if ! rg -n 'ARCHBOOT_(REPO|BRANCH|BOOTSTRAPPED|ROOT|STATE_DIR|LOG_DIR|VERSION)' \
     install.sh lib docs README.md >/dev/null 2>&1 \
-    && grep -Fq 'CI_MODE=${LEANIN_CI:-${ARCHBOOT_CI:-0}}' install.sh; then
+    && grep -Fq 'CI_MODE=${LEANIN_CI:-${ARCHBOOT_CI:-0}}' lib/options; then
     ok 'ARCHBOOT_CI é o único alias de compatibilidade mantido'
 else
     error 'alias ARCHBOOT antigo permanece fora do modo CI'
@@ -322,7 +139,7 @@ bootstrap_tokens=(
     '((${#FAILURES[@]} == 0))'
 )
 for token in "${bootstrap_tokens[@]}"; do
-    if ! grep -Fq "$token" install.sh; then
+    if ! grep -Fq "$token" install.sh lib/control; then
         error "bootstrap sem proteção esperada: $token"
         ((failures += 1))
     fi
@@ -1004,8 +821,8 @@ else
     controls_fail=1
 fi
 
-if ! grep -Fq 'next_step' install.sh \
-    || grep -Fq "next_step 'finalizando integrações'" install.sh; then
+if ! grep -Fq 'next_step' lib/control \
+    || grep -Fq "next_step 'finalizando integrações'" lib/control; then
     error 'fluxo ainda contém etapa final vazia ou sem contador centralizado'
     controls_fail=1
 else
@@ -1075,11 +892,11 @@ fi
 
 # A expressão é intencionalmente literal para validar o código-fonte.
 # shellcheck disable=SC2016
-if grep -Fq 'elif (( DRY_RUN )); then' install.sh \
-    && grep -Fq "ok 'dry-run concluído'" install.sh \
-    && grep -Fq 'error "concluído com $failure_count falha(s)"' install.sh \
-    && grep -Fq 'summary_counts pacman' install.sh \
-    && grep -Fq 'summary_counts serviços' install.sh; then
+if grep -Fq 'elif (( DRY_RUN )); then' lib/control \
+    && grep -Fq "ok 'dry-run concluído'" lib/control \
+    && grep -Fq 'error "concluído com $failure_count falha(s)"' lib/control \
+    && grep -Fq 'summary_counts pacman' lib/control \
+    && grep -Fq 'summary_counts serviços' lib/control; then
     ok 'resumo distingue sucesso, falhas e contagens por fonte'
 else
     error 'resumo final não preserva diagnóstico e contagens esperados'
@@ -1686,8 +1503,8 @@ if github_api_backend_test >/dev/null 2>&1 \
     && grep -Fq '_github_key_material' lib/gh \
     && ! grep -Fq 'ssh_signing_keys' lib/gh \
     && ! grep -Eq '^[[:space:]]*gh[[:space:]]+ssh-key[[:space:]]+list' lib/gh \
-    && grep -Fq 'if github_ssh_registration_ready; then' install.sh \
-    && grep -Fq 'test_github_ssh || true' install.sh; then
+    && grep -Fq 'if github_ssh_registration_ready; then' lib/control \
+    && grep -Fq 'test_github_ssh || true' lib/control; then
     ok 'GitHub usa API user/keys, confirma a chave e isola chaves de assinatura'
 else
     error 'backend GitHub user/keys não está completo'
@@ -1928,6 +1745,7 @@ readme_tokens=(
     'docs/TROUBLESHOOTING.md'
     'docs/APPS.md'
     'docs/SAFETY.md'
+    'docs/ARCHITECTURE.md'
     'CHANGELOG.md'
     'cloudflare/README.md'
     'A personal Arch Linux bootstrap built around repeatability'
@@ -1944,7 +1762,7 @@ for token in "${readme_tokens[@]}"; do
 done
 cloudflare_readme_tokens=(
     'https://shelies.org'
-    'https://github.com/ilikehercauseherpussypink/leanin'
+    'https://github.com/uswl/leanin'
 )
 for token in "${cloudflare_readme_tokens[@]}"; do
     if ! grep -Fq "$token" cloudflare/README.md; then
@@ -1985,7 +1803,7 @@ if grep -Fq 'archboot' README.md; then
     error 'README.md contém branding antigo'
     docs_fail=1
 fi
-if rg -n 'archboot|github\.com/ilikehercauseherpussypink/archboot|/home/pc/archboot|docs/assets/archboot\.svg' \
+if rg -n 'archboot|github\.com/ilikehercauseherpussypink/(archboot|leanin)|/home/pc/archboot|docs/assets/archboot\.svg' \
     README.md docs cloudflare CHANGELOG.md >/dev/null 2>&1; then
     error 'documentação contém referência antiga ao repositório, caminho ou asset'
     docs_fail=1
@@ -2082,7 +1900,7 @@ portuguese_prose=(
     'Confira '
     'Cada instalação'
 )
-for markdown_file in docs/TROUBLESHOOTING.md cloudflare/README.md docs/APPS.md docs/SAFETY.md CHANGELOG.md; do
+for markdown_file in docs/TROUBLESHOOTING.md cloudflare/README.md docs/APPS.md docs/SAFETY.md docs/ARCHITECTURE.md CHANGELOG.md; do
     for token in "${portuguese_prose[@]}"; do
         if grep -Fq -- "$token" "$markdown_file"; then
             error "$markdown_file contém prosa em português: $token"
@@ -2090,7 +1908,7 @@ for markdown_file in docs/TROUBLESHOOTING.md cloudflare/README.md docs/APPS.md d
         fi
     done
 done
-for markdown_file in README.md cloudflare/README.md docs/TROUBLESHOOTING.md docs/APPS.md docs/SAFETY.md; do
+for markdown_file in README.md cloudflare/README.md docs/TROUBLESHOOTING.md docs/APPS.md docs/SAFETY.md docs/ARCHITECTURE.md; do
     if ! awk '/^```/ { open = !open } END { exit open ? 1 : 0 }' "$markdown_file"; then
         error "$markdown_file contém bloco de código aberto"
         docs_fail=1
@@ -2150,7 +1968,7 @@ worker_tokens=(
     'env.OWNER'
     'env.REPO'
     'env.BRANCH'
-    'OWNER: "ilikehercauseherpussypink"'
+    'OWNER: "uswl"'
     'REPO: "leanin"'
     'BRANCH: "main"'
 )
@@ -2235,7 +2053,7 @@ assert(response.status === 200, "GET upstream status");
 assert(response.headers.get("Content-Type") === "text/x-shellscript; charset=utf-8", "script content type");
 assert(response.headers.get("X-Content-Type-Options") === "nosniff", "nosniff header");
 assert((await response.text()).startsWith("#!/usr/bin/env bash"), "GET upstream body");
-assert(calls.at(-1).url === "https://raw.githubusercontent.com/ilikehercauseherpussypink/leanin/main/install.sh", "upstream URL");
+assert(calls.at(-1).url === "https://raw.githubusercontent.com/uswl/leanin/main/install.sh", "upstream URL");
 assert(calls.at(-1).method === "GET", "GET upstream method");
 
 response = await worker.fetch(new Request("https://worker.example/", { method: "HEAD" }), {});

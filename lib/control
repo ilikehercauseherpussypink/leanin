@@ -1,0 +1,473 @@
+#!/usr/bin/env bash
+
+TOTAL_STEPS=0
+STEP_CURRENT=0
+PACMAN_BLOCKED=0
+LOG_FILE=/dev/null
+declare -ag FAILURES=()
+PLAN_LOADED=0
+PIPELINE_SSH_READY=0
+declare -ag LEANIN_PHASES=(system plan packages services codex git ssh github summary)
+declare -Ag LEANIN_PHASE_LABELS=(
+    [system]='sistema'
+    [plan]='plano'
+    [packages]='pacotes'
+    [services]='serviços'
+    [codex]='Codex'
+    [git]='Git'
+    [ssh]='SSH'
+    [github]='GitHub'
+    [summary]='resumo'
+)
+
+plan_status() {
+    local disabled=$1
+    (( disabled )) && printf 'desativado' || printf 'habilitado'
+}
+
+plan_count() {
+    local label=$1 count=$2 singular=$3 plural=$4
+    if (( count == 1 )); then
+        ok "$label: 1 $singular"
+    else
+        ok "$label: $count $plural"
+    fi
+}
+
+print_verbose_plan() {
+    local source='' title='' key='' category='' items='' found=0
+    local -a sources=(pacman flatpak aur)
+    local -a titles=(pacman Flatpak AUR)
+    local index=0
+
+    for source in "${sources[@]}"; do
+        title=${titles[$index]}
+        ((index += 1))
+        printf '\n%s\n' "$title"
+        found=0
+        while IFS= read -r key; do
+            [[ -n $key && ${APP_COUNTS[$key]} -gt 0 ]] || continue
+            category=${key#*/}
+            items=${APP_ITEMS[$key]//$'\n'/ }
+            printf '  %-10s %s\n' "$category" "$items"
+            found=1
+        done < <(printf '%s\n' "${!APP_COUNTS[@]}" | grep "^$source/" | sort)
+        (( found )) || printf '  nenhum\n'
+    done
+
+    printf '\nserviços\n'
+    if ((${#SYSTEM_SERVICES[@]})); then
+        printf '  %-10s %s\n' system "${SYSTEM_SERVICES[*]}"
+    else
+        printf '  system     nenhum\n'
+    fi
+    if ((${#USER_SERVICES[@]})); then
+        printf '  %-10s %s\n' user "${USER_SERVICES[*]}"
+    else
+        printf '  user       nenhum\n'
+    fi
+}
+
+show_plan_only() {
+    load_plan
+
+    printf 'plano\n\n'
+    printf 'pacotes\n'
+    if (( SKIP_PACMAN )); then
+        info "pacman: desativado ($(count_apps pacman) configurados)"
+    else
+        plan_count pacman "$(count_apps pacman)" pacote pacotes
+    fi
+    if (( SKIP_FLATPAK )); then
+        info "Flatpak: desativado ($(count_apps flatpak) configurados)"
+    else
+        plan_count Flatpak "$(count_apps flatpak)" app apps
+    fi
+    if (( SKIP_AUR )); then
+        info "AUR: desativado ($(count_apps aur) configurados)"
+    else
+        plan_count AUR "$(count_apps aur)" pacote pacotes
+    fi
+    printf '\nserviços\n'
+    if (( SKIP_SERVICES )); then
+        info "serviços system: desativado (${#SYSTEM_SERVICES[@]} configurados)"
+        info "serviços user: desativado (${#USER_SERVICES[@]} configurados)"
+    else
+        plan_count 'serviços system' "${#SYSTEM_SERVICES[@]}" serviço serviços
+        plan_count 'serviços user' "${#USER_SERVICES[@]}" serviço serviços
+    fi
+    printf '\nintegrações\n'
+    info "Codex: $(plan_status "$SKIP_CODEX")"
+    info "Git: $(plan_status "$SKIP_GIT")"
+    if (( SKIP_SSH || SKIP_GITHUB )); then
+        info 'SSH/GitHub:'
+        info "SSH: $(plan_status "$SKIP_SSH")"
+        info "GitHub: $(plan_status "$SKIP_GITHUB")"
+    else
+        info 'SSH/GitHub: habilitado'
+    fi
+
+    if (( VERBOSE )); then
+        print_verbose_plan
+    fi
+    return 0
+}
+
+load_plan() {
+    (( PLAN_LOADED )) && return 0
+    read_pacman
+    read_flatpak
+    read_aur
+    read_services
+    PLAN_LOADED=1
+}
+
+calculate_total_steps() {
+    local phase
+    TOTAL_STEPS=0
+    for phase in "${LEANIN_PHASES[@]}"; do
+        phase_enabled "$phase" && ((TOTAL_STEPS += 1))
+    done
+}
+
+packages_enabled() {
+    (( (!SKIP_PACMAN && (${#PACMAN_CORE[@]} + ${#PACMAN_REST[@]} > 0)) \
+        || !SKIP_FLATPAK || (!SKIP_AUR && ${#AUR_APPS[@]} > 0) ))
+}
+
+phase_enabled() {
+    case $1 in
+        system|plan|summary) return 0 ;;
+        packages) packages_enabled ;;
+        services) (( ! SKIP_SERVICES && (${#SYSTEM_SERVICES[@]} + ${#USER_SERVICES[@]} > 0) )) ;;
+        codex) (( ! SKIP_CODEX )) ;;
+        git) (( ! SKIP_GIT )) ;;
+        ssh) (( ! SKIP_SSH )) ;;
+        github) (( ! SKIP_GITHUB )) ;;
+        *) return 1 ;;
+    esac
+}
+
+install_packages() {
+    if (( ! SKIP_PACMAN && ${#PACMAN_CORE[@]} > 0 )); then
+        pacman_install "${PACMAN_CORE[@]}"
+    fi
+    if (( ! SKIP_FLATPAK )); then
+        flatpak_setup || true
+        flatpak_install "${FLATPAK_APPS[@]}"
+    fi
+    if (( ! SKIP_PACMAN && ${#PACMAN_REST[@]} > 0 )); then
+        pacman_install "${PACMAN_REST[@]}"
+    fi
+    if (( ! SKIP_AUR && ${#AUR_APPS[@]} > 0 )); then
+        if (( ! PACMAN_BLOCKED )) && ! detect; then
+            if yesno 'Nenhum AUR helper encontrado. Instalar paru?' n; then
+                bootstrap_paru || true
+            else
+                skip 'instalação de AUR helper recusada'
+            fi
+        fi
+        install "${AUR_APPS[@]}"
+    fi
+}
+
+next_step() {
+    ((STEP_CURRENT += 1))
+    step "$STEP_CURRENT" "$TOTAL_STEPS" "$1"
+}
+
+print_disabled_plan() {
+    (( SKIP_PACMAN )) && skip 'pacman desativado por flag'
+    (( SKIP_FLATPAK )) && skip 'Flatpak desativado por flag'
+    (( SKIP_AUR )) && skip 'AUR desativado por flag'
+    (( SKIP_SERVICES )) && skip 'serviços desativados por flag'
+    (( SKIP_CODEX )) && skip 'Codex desativado por flag'
+    (( SKIP_GIT )) && skip 'Git desativado por flag'
+    (( SKIP_SSH )) && skip 'SSH desativado por flag'
+    (( SKIP_GITHUB )) && skip 'GitHub desativado por flag'
+    return 0
+}
+
+summary_line() {
+    local label=$1
+    shift
+    local joined='' item
+    if (($#)); then
+        for item in "$@"; do
+            [[ -n $joined ]] && joined+=', '
+            joined+=$item
+        done
+        printf '> [info] %s: %s\n' "$label" "$joined"
+    else
+        printf '> [info] %s: nenhum\n' "$label"
+    fi
+}
+
+log_list() {
+    local label=$1
+    shift
+    local item
+    for item in "$@"; do
+        printf '%s: %s\n' "$label" "$item" >>"$LOG_FILE"
+    done
+}
+
+has_failure() {
+    local expected=$1 failure
+    for failure in "${FAILURES[@]}"; do
+        [[ $failure == "$expected" ]] && return 0
+    done
+    return 1
+}
+
+count_failures() {
+    local prefix=$1 failure count=0
+    for failure in "${FAILURES[@]}"; do
+        [[ $failure == "$prefix"* ]] && ((count += 1))
+    done
+    printf '%s' "$count"
+}
+
+summary_counts() {
+    local label=$1 action_count=$2 action_label=$3 skipped_count=$4 failure_prefix=$5
+    local failed_count line
+    failed_count=$(count_failures "$failure_prefix")
+    line="$label: $action_count $action_label, $skipped_count pulados"
+    (( failed_count > 0 )) && line+=", $failed_count falhas"
+    info "$line"
+}
+
+show_summary() {
+    local codex_command='' expected_codex="$HOME/.codex/bin/codex"
+    local failure_count=${#FAILURES[@]}
+
+    log_list 'pacman installed' "${PACMAN_INSTALLED[@]}"
+    log_list 'pacman skipped' "${PACMAN_SKIPPED[@]}"
+    log_list 'flatpak installed' "${FLATPAK_INSTALLED[@]}"
+    log_list 'flatpak skipped' "${FLATPAK_SKIPPED[@]}"
+    log_list 'AUR installed' "${AUR_INSTALLED[@]}"
+    log_list 'AUR skipped' "${AUR_SKIPPED[@]}"
+    log_list 'service activated' "${SERVICES_ACTIVATED[@]}"
+    log_list 'service already active' "${SERVICES_ALREADY[@]}"
+    log_list 'service skipped' "${SERVICES_SKIPPED[@]}"
+    log_list 'failure' "${FAILURES[@]}"
+
+    if (( failure_count > 0 )); then
+        error "concluído com $failure_count falha(s)"
+    elif (( DRY_RUN )); then
+        ok 'dry-run concluído'
+    else
+        if (( ! SKIP_GITHUB )) && ! github_ssh_registration_ready; then
+            warn 'concluído com etapas manuais'
+        else
+            ok 'concluído'
+        fi
+    fi
+
+    printf '\npacotes\n'
+    if (( DRY_RUN )); then
+        summary_counts pacman "${#PACMAN_PLANNED[@]}" planejados "${#PACMAN_SKIPPED[@]}" 'pacman:'
+        summary_counts Flatpak "${#FLATPAK_PLANNED[@]}" planejados "${#FLATPAK_SKIPPED[@]}" 'flatpak:'
+        summary_counts AUR "${#AUR_PLANNED[@]}" planejados "${#AUR_SKIPPED[@]}" 'aur:'
+    else
+        summary_counts pacman "${#PACMAN_INSTALLED[@]}" instalados "${#PACMAN_SKIPPED[@]}" 'pacman:'
+        summary_counts Flatpak "${#FLATPAK_INSTALLED[@]}" instalados "${#FLATPAK_SKIPPED[@]}" 'flatpak:'
+        summary_counts AUR "${#AUR_INSTALLED[@]}" instalados "${#AUR_SKIPPED[@]}" 'aur:'
+    fi
+
+    printf '\nconfiguração\n'
+    if (( DRY_RUN )); then
+        summary_counts serviços "${#SERVICES_PLANNED[@]}" planejados \
+            "$((${#SERVICES_ALREADY[@]} + ${#SERVICES_SKIPPED[@]}))" 'service:'
+    else
+        summary_counts serviços "$((${#SERVICES_ACTIVATED[@]} + ${#SERVICES_ALREADY[@]}))" ativos \
+            "${#SERVICES_SKIPPED[@]}" 'service:'
+    fi
+    if (( SKIP_GITHUB )); then
+        info 'GitHub SSH: desativado por flag'
+    else
+        info "GitHub SSH: $(github_summary_state)"
+    fi
+    if (( SKIP_CODEX )); then
+        info 'Codex: desativado por flag'
+    else
+        codex_command=$(command -v codex 2>/dev/null || true)
+        if [[ -n $codex_command && $codex_command != "$expected_codex" ]]; then
+            warn 'Codex encontrado fora de ~/.codex. Abra novo terminal ou revise PATH antigo.'
+        fi
+        info "Codex: ${codex_command:-não encontrado}"
+    fi
+
+    if (( failure_count > 0 )); then
+        summary_line 'falhas' "${FAILURES[@]}"
+    fi
+
+    if (( VERBOSE )); then
+        summary_line 'pacman instalados' "${PACMAN_INSTALLED[@]}"
+        summary_line 'pacman pulados' "${PACMAN_SKIPPED[@]}"
+        summary_line 'Flatpak instalados' "${FLATPAK_INSTALLED[@]}"
+        summary_line 'Flatpak pulados' "${FLATPAK_SKIPPED[@]}"
+        summary_line 'AUR instalados' "${AUR_INSTALLED[@]}"
+        summary_line 'AUR pulados' "${AUR_SKIPPED[@]}"
+        summary_line 'serviços ativados' "${SERVICES_ACTIVATED[@]}"
+        summary_line 'serviços já ativos' "${SERVICES_ALREADY[@]}"
+        summary_line 'serviços pulados' "${SERVICES_SKIPPED[@]}"
+        info "Git: ${GIT_NAME:-não configurado} <${GIT_EMAIL:-não configurado}>"
+        info "chave SSH pública: ${SSH_PUBLIC_KEY:-não configurada}"
+        info "GitHub SSH keys antigas: ${GITHUB_OLD_KEYS_STATUS:-não verificadas}"
+        info "permissões GitHub SSH keys: ${GITHUB_SSH_MANAGEMENT_STATUS:-não verificadas}"
+        info "título GitHub SSH key: ${GITHUB_KEY_TITLE:-person}"
+        info "teste SSH GitHub: ${SSH_GITHUB_RESULT:-não testado}"
+    fi
+
+    if ((${#DISABLED_FEATURES[@]})); then
+        summary_line 'desativados por flag' "${DISABLED_FEATURES[@]}"
+    fi
+
+    if [[ $LOG_FILE != /dev/null ]]; then
+        printf '\nlogs\n'
+        if (( failure_count > 0 )); then
+            info "veja log: $LOG_FILE"
+        else
+            info "$LOG_FILE"
+        fi
+    fi
+
+    if (( ! SKIP_GITHUB )) && ! github_ssh_registration_ready; then
+        info "próximo passo: adicione a chave SSH em $GITHUB_KEYS_URL"
+        info 'próximo passo: teste com: ssh -T git@github.com'
+    fi
+    if (( CODEX_PATH_CHANGED )); then
+        info 'próximo passo: abra um novo terminal para ativar o PATH do Codex'
+    fi
+    if has_failure 'aur:wootility'; then
+        info 'próximo passo: consulte as regras udev da Wootility no README'
+    fi
+}
+
+run_system_phase() {
+    if [[ $CI_MODE == 1 ]]; then
+        LOG_FILE=/dev/null
+        PACMAN_BLOCKED=0
+        ok 'modo CI dry-run'
+    else
+        arch || die 'este instalador suporta apenas Arch Linux'
+        ok 'Arch Linux detectado'
+        root && die 'não execute o leanin como root'
+        ok 'execução como usuário comum'
+        sudo
+        ok 'sudo disponível'
+        net
+        ok 'internet disponível'
+        lock
+        state
+        ok "log: $LOG_FILE"
+    fi
+}
+
+run_plan_phase() {
+    if ! validate_apps; then
+        warn 'há entradas com formato improvável; a instalação continuará'
+    fi
+    print_plan
+    print_services_plan
+    print_disabled_plan
+}
+
+run_packages_phase() {
+    install_packages
+}
+
+run_services_phase() {
+    activate_services
+}
+
+run_codex_phase() {
+    if configure_prefix; then
+        install_codex || true
+        configure_path
+    else
+        skip 'PATH do Codex não foi alterado'
+    fi
+}
+
+run_git_phase() {
+    configure_git || true
+}
+
+run_ssh_phase() {
+    if configure_ssh; then
+        PIPELINE_SSH_READY=1
+    fi
+}
+
+run_github_phase() {
+    if (( PIPELINE_SSH_READY )); then
+        github_manage_ssh_key "$SSH_PUBLIC_KEY"
+        if github_ssh_registration_ready; then
+            test_github_ssh || true
+        else
+            SSH_GITHUB_RESULT='pendente'
+            skip 'teste SSH GitHub pulado; cadastro da chave pendente'
+        fi
+    else
+        skip 'GitHub SSH pulado: chave local indisponível'
+        # Sourced global read by GitHub summary helpers after this phase.
+        # shellcheck disable=SC2034
+        GITHUB_NEW_KEY_STATUS='chave local indisponível'
+    fi
+}
+
+run_summary_phase() {
+    show_summary
+}
+
+run_phase() {
+    case $1 in
+        system) run_system_phase ;;
+        plan) run_plan_phase ;;
+        packages) run_packages_phase ;;
+        services) run_services_phase ;;
+        codex) run_codex_phase ;;
+        git) run_git_phase ;;
+        ssh) run_ssh_phase ;;
+        github) run_github_phase ;;
+        summary) run_summary_phase ;;
+        *) return 1 ;;
+    esac
+}
+
+run_pipeline() {
+    local phase
+    PIPELINE_SSH_READY=0
+    for phase in "${LEANIN_PHASES[@]}"; do
+        phase_enabled "$phase" || continue
+        next_step "${LEANIN_PHASE_LABELS[$phase]}"
+        run_phase "$phase"
+    done
+}
+
+leanin_main() {
+    parse_args "$@"
+    collect_disabled_features
+
+    if [[ $CI_MODE != 0 && $CI_MODE != 1 ]]; then
+        die 'LEANIN_CI deve ser 0 ou 1'
+    fi
+    if [[ $CI_MODE == 1 && $DRY_RUN != 1 && $PLAN_ONLY != 1 && $DOCTOR_ONLY != 1 ]]; then
+        die 'LEANIN_CI=1 exige --dry-run, --plan ou --doctor'
+    fi
+    if (( DOCTOR_ONLY )); then
+        doctor_run
+        return $?
+    fi
+    if (( PLAN_ONLY )); then
+        show_plan_only
+        return 0
+    fi
+
+    load_plan
+    calculate_total_steps
+    run_pipeline
+    ((${#FAILURES[@]} == 0))
+}

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+step 2 10 'validando sintaxe Bash'
+mapfile -t bash_files < <(
+    printf '%s\n' install.sh scripts/check scripts/github
+    find lib -maxdepth 1 -type f | sort
+    find scripts/checks -maxdepth 1 -type f | sort
+)
+for file in "${bash_files[@]}"; do
+    if bash -n "$file"; then
+        ok "bash -n $file"
+    else
+        error "sintaxe inválida: $file"
+        ((failures += 1))
+    fi
+done

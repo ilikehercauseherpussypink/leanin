@@ -1,5 +1,5 @@
 const DEFAULTS = Object.freeze({
-  OWNER: "ilikehercauseherpussypink",
+  OWNER: "uswl",
   REPO: "leanin",
   BRANCH: "main",
 });
