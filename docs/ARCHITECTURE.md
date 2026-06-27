@@ -42,10 +42,29 @@ result globals set by the control plane and supporting modules.
 
 ## Checks
 
-`bash scripts/check` is the public check command. It sources focused checks from
-`scripts/checks/` for common helpers, structure, Bash syntax, and app/service
-lists, then continues through the safety, bootstrap, installer-control,
-documentation, workflow, Worker, secret, and ShellCheck validations.
+`bash scripts/check` is the public check command. It is a small orchestrator
+that sources focused modules from `scripts/checks/`:
+
+* `common`: shared check helpers, repository root setup, and temporary test
+  home cleanup.
+* `structure`: required files, executable entrypoints, and checked module
+  inventory.
+* `bash-syntax`: `bash -n` coverage for installer, helper scripts, libraries,
+  and check modules.
+* `lists`: package, Flatpak, AUR, and service list validation.
+* `repository`: repository identity, compatibility aliases, tracked generated
+  files, and obvious secret scans.
+* `safety`: source-level safety rules, redaction, log permissions, prompt
+  defaults, SSH path limits, GitHub key deletion safeguards, and no-removal
+  assertions.
+* `bootstrap`: pipe-install and remote bootstrap regression tests.
+* `installer-controls`: public flag behavior, read-only modes, CI behavior,
+  prompt isolation, dry-run flow, and feature-module mocks.
+* `docs`: README, troubleshooting, app, safety, architecture, changelog, and
+  Markdown consistency checks.
+* `workflow`: GitHub Actions workflow expectations.
+* `worker`: Cloudflare Worker source and functional tests.
+* `shellcheck`: optional ShellCheck execution when installed.
 
 The check suite intentionally uses source-token assertions for safety-sensitive
 behavior such as bootstrap validation, redaction, pacman lock handling, and
