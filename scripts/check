@@ -42,7 +42,7 @@ required=(
     scripts/check scripts/github
     cloudflare/worker.js cloudflare/wrangler.toml.example cloudflare/README.md
     lib/log lib/ask lib/env lib/doctor lib/run lib/pkg lib/flatpak lib/aur lib/apps lib/service
-    lib/control
+    lib/control lib/options
     lib/git lib/ssh lib/gh lib/codex
     apps/pacman/base apps/pacman/dev apps/pacman/browsers apps/pacman/audio
     apps/pacman/privacy apps/pacman/system
@@ -210,7 +210,7 @@ fi
 # shellcheck disable=SC2016
 if grep -Fq 'LEANIN_REPO=https://github.com/ilikehercauseherpussypink/leanin' install.sh \
     && grep -Fq 'LEANIN_BRANCH=main' install.sh \
-    && grep -Fq 'CI_MODE=${LEANIN_CI:-${ARCHBOOT_CI:-0}}' lib/control; then
+    && grep -Fq 'CI_MODE=${LEANIN_CI:-${ARCHBOOT_CI:-0}}' lib/options; then
     ok 'bootstrap remoto aponta para o repositório publicado'
 else
     error 'default LEANIN_REPO não aponta para ilikehercauseherpussypink/leanin'
@@ -219,7 +219,7 @@ fi
 # shellcheck disable=SC2016
 if ! rg -n 'ARCHBOOT_(REPO|BRANCH|BOOTSTRAPPED|ROOT|STATE_DIR|LOG_DIR|VERSION)' \
     install.sh lib docs README.md >/dev/null 2>&1 \
-    && grep -Fq 'CI_MODE=${LEANIN_CI:-${ARCHBOOT_CI:-0}}' lib/control; then
+    && grep -Fq 'CI_MODE=${LEANIN_CI:-${ARCHBOOT_CI:-0}}' lib/options; then
     ok 'ARCHBOOT_CI é o único alias de compatibilidade mantido'
 else
     error 'alias ARCHBOOT antigo permanece fora do modo CI'

@@ -1,93 +1,11 @@
 #!/usr/bin/env bash
 
-VERBOSE=0
-DRY_RUN=0
-PLAN_ONLY=0
-DOCTOR_ONLY=0
-ASSUME_YES=0
-CI_MODE=${LEANIN_CI:-${ARCHBOOT_CI:-0}}
-SKIP_PACMAN=0
-SKIP_FLATPAK=0
-SKIP_AUR=0
-SKIP_SERVICES=0
-SKIP_CODEX=0
-SKIP_GIT=0
-SKIP_SSH=0
-SKIP_GITHUB=0
 TOTAL_STEPS=0
 STEP_CURRENT=0
 PACMAN_BLOCKED=0
 LOG_FILE=/dev/null
 declare -ag FAILURES=()
-declare -ag DISABLED_FEATURES=()
 PLAN_LOADED=0
-
-usage() {
-    cat <<'EOF'
-Uso: bash install.sh [opções]
-
-  --dry-run       mostra ações sem alterar o sistema
-  --verbose       mostra comandos e saída completa
-  --plan          mostra somente o plano resumido
-  --doctor        verifica o ambiente sem alterar o sistema
-  --version       mostra a versão instalada
-  --yes           usa defaults seguros sem prompts
-  --no-packages   pula pacman, Flatpak e AUR
-  --no-pacman     pula pacotes pacman
-  --no-flatpak    pula Flatpak, Flathub e seus apps
-  --no-aur        pula AUR helper e pacotes AUR
-  --no-services   pula serviços system e user
-  --no-codex      pula Codex CLI
-  --no-git        pula identidade e preferências Git
-  --no-ssh        pula SSH local e integração GitHub SSH
-  --no-github     pula integração e autenticação GitHub
-  --help          mostra esta ajuda
-EOF
-}
-
-parse_args() {
-    while (($#)); do
-        case $1 in
-            --verbose) VERBOSE=1 ;;
-            --dry-run) DRY_RUN=1 ;;
-            --plan) PLAN_ONLY=1 ;;
-            --doctor) DOCTOR_ONLY=1 ;;
-            --yes) ASSUME_YES=1 ;;
-            --no-packages)
-                SKIP_PACMAN=1
-                SKIP_FLATPAK=1
-                SKIP_AUR=1
-                ;;
-            --no-pacman) SKIP_PACMAN=1 ;;
-            --no-flatpak) SKIP_FLATPAK=1 ;;
-            --no-aur) SKIP_AUR=1 ;;
-            --no-services) SKIP_SERVICES=1 ;;
-            --no-codex) SKIP_CODEX=1 ;;
-            --no-git) SKIP_GIT=1 ;;
-            --no-ssh)
-                SKIP_SSH=1
-                SKIP_GITHUB=1
-                ;;
-            --no-github) SKIP_GITHUB=1 ;;
-            --version) ;;
-            --help|-h) usage; exit 0 ;;
-            *) die "opção desconhecida: $1" ;;
-        esac
-        shift
-    done
-}
-
-collect_disabled_features() {
-    (( SKIP_PACMAN )) && DISABLED_FEATURES+=('pacman')
-    (( SKIP_FLATPAK )) && DISABLED_FEATURES+=('Flatpak')
-    (( SKIP_AUR )) && DISABLED_FEATURES+=('AUR')
-    (( SKIP_SERVICES )) && DISABLED_FEATURES+=('serviços')
-    (( SKIP_CODEX )) && DISABLED_FEATURES+=('Codex')
-    (( SKIP_GIT )) && DISABLED_FEATURES+=('Git')
-    (( SKIP_SSH )) && DISABLED_FEATURES+=('SSH')
-    (( SKIP_GITHUB )) && DISABLED_FEATURES+=('GitHub')
-    return 0
-}
 
 plan_status() {
     local disabled=$1

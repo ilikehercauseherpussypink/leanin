@@ -243,6 +243,8 @@ source "$LEANIN_ROOT/lib/git"
 source "$LEANIN_ROOT/lib/ssh"
 # shellcheck source=lib/gh
 source "$LEANIN_ROOT/lib/gh"
+# shellcheck source=lib/options
+source "$LEANIN_ROOT/lib/options"
 # shellcheck source=lib/control
 source "$LEANIN_ROOT/lib/control"
 
