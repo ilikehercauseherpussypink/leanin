@@ -15,6 +15,37 @@ trap 'rm -rf -- "$ssh_test_home"' EXIT
 # shellcheck disable=SC2034
 declare -ag bash_files=()
 
+fixture_path() {
+    printf '%s/%s\n' "$ssh_test_home" "$1"
+}
+
+fixture_dir() {
+    local path
+    path=$(fixture_path "$1")
+    mkdir -p "$path"
+    printf '%s\n' "$path"
+}
+
+write_fake_command() {
+    local command_path=$1
+    mkdir -p "$(dirname -- "$command_path")"
+    cat >"$command_path"
+    chmod +x "$command_path"
+}
+
+seed_ssh_identity() {
+    local home=$1
+    local private=${2:-original private}
+    local public=${3:-ssh-ed25519 AAAAORIGINAL mock@example}
+
+    mkdir -p "$home/.ssh"
+    printf '%s\n' "$private" >"$home/.ssh/id_ed25519"
+    printf '%s\n' "$public" >"$home/.ssh/id_ed25519.pub"
+    chmod 700 "$home/.ssh"
+    chmod 600 "$home/.ssh/id_ed25519"
+    chmod 644 "$home/.ssh/id_ed25519.pub"
+}
+
 check_file() {
     if [[ ! -f $1 ]]; then
         error "arquivo ausente: $1"

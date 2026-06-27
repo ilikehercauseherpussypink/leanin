@@ -451,7 +451,7 @@ else
     controls_fail=1
 fi
 
-doctor_home="$ssh_test_home/doctor-home"
+doctor_home=$(fixture_path doctor-home)
 if HOME="$doctor_home" LEANIN_ROOT="$ROOT" CI_MODE=1 bash -c '
     set -Eeuo pipefail
     source lib/log
@@ -584,14 +584,12 @@ if (( controls_fail )); then
     ((failures += 1))
 fi
 
-fake_bin="$ssh_test_home/bin"
-sudo_marker="$ssh_test_home/sudo-marker"
-mkdir -p "$fake_bin"
-cat >"$fake_bin/sudo" <<EOF
+fake_bin=$(fixture_dir bin)
+sudo_marker=$(fixture_path sudo-marker)
+write_fake_command "$fake_bin/sudo" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >>"$sudo_marker"
 EOF
-chmod +x "$fake_bin/sudo"
 if PATH="$fake_bin:$PATH" SUDO_MARKER="$sudo_marker" bash -c '
     set -Eeuo pipefail
     source lib/log
@@ -609,9 +607,8 @@ else
     ((failures += 1))
 fi
 
-ssh_add_log="$ssh_test_home/ssh-add.log"
-mkdir -p "$fake_bin"
-cat >"$fake_bin/ssh-add" <<'EOF'
+ssh_add_log=$(fixture_path ssh-add.log)
+write_fake_command "$fake_bin/ssh-add" <<'EOF'
 #!/usr/bin/env bash
 if [[ -n ${SSH_ADD_MARKER:-} ]]; then
     exec 3>>"$SSH_ADD_MARKER"
@@ -624,10 +621,7 @@ if [[ -n ${SSH_ADD_MARKER:-} ]]; then
 fi
 printf 'Identity added: %s (mock)\n' "${1:-unknown}"
 EOF
-chmod +x "$fake_bin/ssh-add"
-mkdir -p "$ssh_test_home/.ssh"
-printf 'private mock\n' >"$ssh_test_home/.ssh/id_ed25519"
-printf 'ssh-ed25519 AAAATEST mock@example\n' >"$ssh_test_home/.ssh/id_ed25519.pub"
+seed_ssh_identity "$ssh_test_home" 'private mock' 'ssh-ed25519 AAAATEST mock@example'
 if ssh_add_output=$(HOME="$ssh_test_home" PATH="$fake_bin:$PATH" SSH_AUTH_SOCK=mock \
     bash -c '
         set -Eeuo pipefail
@@ -656,8 +650,8 @@ else
     ((failures += 1))
 fi
 
-ssh_add_tty="$ssh_test_home/ssh-add.tty"
-ssh_add_marker="$ssh_test_home/ssh-add.marker"
+ssh_add_tty=$(fixture_path ssh-add.tty)
+ssh_add_marker=$(fixture_path ssh-add.marker)
 : >"$ssh_add_tty"
 : >"$ssh_add_marker"
 if ssh_add_tty_output=$(HOME="$ssh_test_home" PATH="$fake_bin:$PATH" SSH_AUTH_SOCK=mock \
@@ -688,10 +682,10 @@ else
     ((failures += 1))
 fi
 
-tty_file="$ssh_test_home/ssh-keygen.tty"
-keygen_marker="$ssh_test_home/ssh-keygen.marker"
+tty_file=$(fixture_path ssh-keygen.tty)
+keygen_marker=$(fixture_path ssh-keygen.marker)
 : >"$tty_file"
-cat >"$fake_bin/ssh-keygen" <<'EOF'
+write_fake_command "$fake_bin/ssh-keygen" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 printf 'askpass=%s require=%s\n' "${SSH_ASKPASS-unset}" "${SSH_ASKPASS_REQUIRE-unset}" >>"$SSH_KEYGEN_MARKER"
@@ -715,17 +709,11 @@ fi
 printf 'generated private\n' >"$private"
 printf 'ssh-ed25519 AAAAGENERATED mock@example\n' >"$private.pub"
 EOF
-chmod +x "$fake_bin/ssh-keygen"
 
 ssh_keygen_case() {
     local mode=$1 home='' output=''
-    home="$ssh_test_home/keygen-$mode"
-    mkdir -p "$home/.ssh"
-    printf 'original private\n' >"$home/.ssh/id_ed25519"
-    printf 'ssh-ed25519 AAAAORIGINAL mock@example\n' >"$home/.ssh/id_ed25519.pub"
-    chmod 700 "$home/.ssh"
-    chmod 600 "$home/.ssh/id_ed25519"
-    chmod 644 "$home/.ssh/id_ed25519.pub"
+    home=$(fixture_path "keygen-$mode")
+    seed_ssh_identity "$home"
     : >"$keygen_marker"
 
     output=$(HOME="$home" PATH="$fake_bin:$PATH" SSH_AUTH_SOCK=mock \
@@ -774,14 +762,9 @@ else
     ((failures += 1))
 fi
 
-no_tty_home="$ssh_test_home/keygen-no-tty"
-no_tty_marker="$ssh_test_home/keygen-no-tty.marker"
-mkdir -p "$no_tty_home/.ssh"
-printf 'original private\n' >"$no_tty_home/.ssh/id_ed25519"
-printf 'ssh-ed25519 AAAAORIGINAL mock@example\n' >"$no_tty_home/.ssh/id_ed25519.pub"
-chmod 700 "$no_tty_home/.ssh"
-chmod 600 "$no_tty_home/.ssh/id_ed25519"
-chmod 644 "$no_tty_home/.ssh/id_ed25519.pub"
+no_tty_home=$(fixture_path keygen-no-tty)
+no_tty_marker=$(fixture_path keygen-no-tty.marker)
+seed_ssh_identity "$no_tty_home"
 : >"$no_tty_marker"
 if no_tty_output=$(HOME="$no_tty_home" PATH="$fake_bin:$PATH" SSH_AUTH_SOCK=mock \
     SSH_KEYGEN_MARKER="$no_tty_marker" TTY_FILE="$ssh_test_home/tty-missing" \
@@ -863,7 +846,7 @@ else
 fi
 
 github_api_backend_test() {
-    HOME="$ssh_test_home" GH_API_MARKER="$ssh_test_home/github-api.marker" bash -c '
+    HOME="$ssh_test_home" GH_API_MARKER="$(fixture_path github-api.marker)" bash -c '
         set -Eeuo pipefail
         source lib/log
         source lib/env
@@ -944,15 +927,15 @@ else
 fi
 
 clipboard_mock() {
-    local scenario=$1 fake_clipboard="$ssh_test_home/clipboard-$1" output=''
+    local scenario=$1 fake_clipboard output=''
+    fake_clipboard=$(fixture_path "clipboard-$1")
     rm -f "$fake_clipboard"
     if [[ $scenario != none ]]; then
-        cat >"$fake_bin/wl-copy" <<EOF
+        write_fake_command "$fake_bin/wl-copy" <<EOF
 #!/usr/bin/env bash
 cat >/dev/null
 [[ $scenario == success ]]
 EOF
-        chmod +x "$fake_bin/wl-copy"
     else
         rm -f "$fake_bin/wl-copy"
     fi
@@ -1060,7 +1043,8 @@ fi
 
 service_mock() {
     local mode=$1
-    local marker="$ssh_test_home/service-$mode"
+    local marker
+    marker=$(fixture_path "service-$mode")
     rm -f "$marker"
     HOME="$ssh_test_home" MODE="$mode" MARKER="$marker" bash -c '
         set -Eeuo pipefail

@@ -45,8 +45,9 @@ result globals set by the control plane and supporting modules.
 `bash scripts/check` is the public check command. It is a small orchestrator
 that sources focused modules from `scripts/checks/`:
 
-* `common`: shared check helpers, repository root setup, and temporary test
-  home cleanup.
+* `common`: shared check helpers, repository root setup, temporary test home
+  cleanup, fixture paths/directories, fake command writers, and SSH key
+  identity setup for regression tests.
 * `structure`: required files, executable entrypoints, and checked module
   inventory.
 * `bash-syntax`: `bash -n` coverage for installer, helper scripts, libraries,
@@ -57,9 +58,11 @@ that sources focused modules from `scripts/checks/`:
 * `safety`: source-level safety rules, redaction, log permissions, prompt
   defaults, SSH path limits, GitHub key deletion safeguards, and no-removal
   assertions.
-* `bootstrap`: pipe-install and remote bootstrap regression tests.
+* `bootstrap`: pipe-install and remote bootstrap regression tests, using local
+  fake `curl`, `tar`, and `mktemp` fixtures.
 * `installer-controls`: public flag behavior, read-only modes, CI behavior,
-  prompt isolation, dry-run flow, and feature-module mocks.
+  prompt isolation, dry-run flow, and feature-module mocks for sudo, SSH,
+  GitHub, clipboard, Flatpak, and services.
 * `docs`: README, troubleshooting, app, safety, architecture, changelog, and
   Markdown consistency checks.
 * `workflow`: GitHub Actions workflow expectations.
