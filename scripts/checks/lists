@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+
+step 3 10 'validando listas de apps'
+flatpak_pattern='^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){2,}$'
+package_pattern='^[A-Za-z0-9@._+-]+$'
+declare -A seen_apps=()
+for file in apps/flatpak/*; do
+    while IFS= read -r app; do
+        if [[ $app == @openai/codex ]]; then
+            error "$file contém @openai/codex"
+            ((failures += 1))
+        elif [[ ! $app =~ $flatpak_pattern ]]; then
+            if ! grep -Fq "$app # leanin: allow-simple" "$file"; then
+                error "$file contém ID Flatpak improvável: $app"
+                ((failures += 1))
+            fi
+        elif [[ -n ${seen_apps["flatpak:$app"]:-} ]]; then
+            error "$file duplica $app já listado em ${seen_apps["flatpak:$app"]}"
+            ((failures += 1))
+        else
+            seen_apps["flatpak:$app"]=$file
+        fi
+    done < <(app_lines "$file")
+done
+for source in pacman aur; do
+    for file in "apps/$source"/*; do
+        while IFS= read -r app; do
+            if [[ $app == @openai/codex ]]; then
+                error "$file contém @openai/codex"
+                ((failures += 1))
+            elif [[ $app =~ $flatpak_pattern ]]; then
+                error "$file parece conter ID Flatpak: $app"
+                ((failures += 1))
+            elif [[ ! $app =~ $package_pattern ]]; then
+                error "$file contém pacote com formato inválido: $app"
+                ((failures += 1))
+            elif [[ -n ${seen_apps["$source:$app"]:-} ]]; then
+                error "$file duplica $app já listado em ${seen_apps["$source:$app"]}"
+                ((failures += 1))
+            else
+                seen_apps["$source:$app"]=$file
+            fi
+        done < <(app_lines "$file")
+    done
+done
+if grep -Fxq 'org.vinegarhq.Sober' apps/flatpak/games \
+    && ! grep -RFx 'org.vinegarhq.Sober' apps/pacman apps/aur >/dev/null 2>&1; then
+    ok 'Sober está somente na categoria Flatpak games'
+else
+    error 'Sober precisa estar apenas em apps/flatpak/games'
+    ((failures += 1))
+fi
+if bash -c '
+    set -Eeuo pipefail
+    source lib/log
+    source lib/apps
+    LEANIN_ROOT=$1
+    LOG_FILE=/dev/null
+    read_pacman
+    [[ ${#PACMAN_APPS[@]} == 11 ]]
+    read_flatpak
+    read_aur
+    read_pacman
+    [[ ${#PACMAN_APPS[@]} == 11 ]]
+    [[ ${#FLATPAK_APPS[@]} == 6 ]]
+    [[ ${#AUR_APPS[@]} == 3 ]]
+' _ "$ROOT" >/dev/null 2>&1; then
+    ok 'leitura de apps é idempotente por fonte'
+else
+    error 'leitura repetida de apps duplicou ou perdeu entradas'
+    ((failures += 1))
+fi
+if ! bash -c '
+    set -Eeuo pipefail
+    source lib/apps
+    _app_item_valid pacman "bad;package"
+' >/dev/null 2>&1 \
+    && ! bash -c '
+        set -Eeuo pipefail
+        source lib/apps
+        _app_item_valid aur "bad package"
+    ' >/dev/null 2>&1 \
+    && ! bash -c '
+        set -Eeuo pipefail
+        source lib/apps
+        _app_item_valid flatpak "not-a-flatpak"
+    ' >/dev/null 2>&1; then
+    ok 'parser rejeita entradas de apps inseguras ou improváveis'
+else
+    error 'parser aceitou entrada de app inválida'
+    ((failures += 1))
+fi
+for file in services/system services/user; do
+    declare -A seen_services=()
+    while IFS= read -r service; do
+        if [[ ! $service =~ ^[A-Za-z0-9@_.:-]+\.service$ ]]; then
+            error "$file contém serviço com formato inválido: $service"
+            ((failures += 1))
+        elif [[ -n ${seen_services["$service"]:-} ]]; then
+            error "$file duplica serviço: $service"
+            ((failures += 1))
+        else
+            seen_services["$service"]=1
+        fi
+    done < <(app_lines "$file")
+done
+(( failures == 0 )) && ok 'listas de apps válidas'
+if grep -Fxq easyeffects apps/pacman/audio; then
+    ok 'EasyEffects está na categoria pacman/audio'
+else
+    error 'EasyEffects ausente de apps/pacman/audio'
+    ((failures += 1))
+fi
+if grep -Fxq mullvad-daemon.service services/system; then
+    ok 'mullvad-daemon.service está em services/system'
+else
+    error 'mullvad-daemon.service ausente de services/system'
+    ((failures += 1))
+fi

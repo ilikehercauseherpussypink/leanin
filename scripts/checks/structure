@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+step 1 10 'validando estrutura'
+required=(
+    install.sh README.md CHANGELOG.md LICENSE .gitignore
+    docs/TROUBLESHOOTING.md docs/APPS.md docs/SAFETY.md docs/assets/leanin.svg
+    .github/workflows/check.yml
+    scripts/check scripts/github
+    scripts/checks/common scripts/checks/structure scripts/checks/bash-syntax scripts/checks/lists
+    cloudflare/worker.js cloudflare/wrangler.toml.example cloudflare/README.md
+    lib/log lib/ask lib/env lib/doctor lib/run lib/pkg lib/flatpak lib/aur lib/apps lib/service
+    lib/control lib/options
+    lib/git lib/ssh lib/gh lib/codex
+    apps/pacman/base apps/pacman/dev apps/pacman/browsers apps/pacman/audio
+    apps/pacman/privacy apps/pacman/system
+    apps/flatpak/chat apps/flatpak/media apps/flatpak/mail
+    apps/flatpak/privacy apps/flatpak/tools apps/flatpak/games
+    apps/aur/browsers apps/aur/privacy apps/aur/media apps/aur/tools
+    services/system services/user
+)
+for file in "${required[@]}"; do
+    check_file "$file"
+done
+for file in install.sh scripts/check scripts/github; do
+    if [[ -x $file ]] && head -n 1 "$file" | grep -Fqx '#!/usr/bin/env bash'; then
+        ok "$file é executável com shebang Bash"
+    else
+        error "$file precisa ser executável com shebang Bash"
+        ((failures += 1))
+    fi
+done
