@@ -6,6 +6,19 @@ PACMAN_BLOCKED=0
 LOG_FILE=/dev/null
 declare -ag FAILURES=()
 PLAN_LOADED=0
+PIPELINE_SSH_READY=0
+declare -ag LEANIN_PHASES=(system plan packages services codex git ssh github summary)
+declare -Ag LEANIN_PHASE_LABELS=(
+    [system]='sistema'
+    [plan]='plano'
+    [packages]='pacotes'
+    [services]='serviços'
+    [codex]='Codex'
+    [git]='Git'
+    [ssh]='SSH'
+    [github]='GitHub'
+    [summary]='resumo'
+)
 
 plan_status() {
     local disabled=$1
@@ -110,30 +123,29 @@ load_plan() {
 }
 
 calculate_total_steps() {
-    TOTAL_STEPS=3 # sistema, plano e resumo
-    if packages_enabled; then
-        ((TOTAL_STEPS += 1))
-    fi
-    if (( ! SKIP_SERVICES && (${#SYSTEM_SERVICES[@]} + ${#USER_SERVICES[@]} > 0) )); then
-        ((TOTAL_STEPS += 1))
-    fi
-    if (( ! SKIP_CODEX )); then
-        ((TOTAL_STEPS += 1))
-    fi
-    if (( ! SKIP_GIT )); then
-        ((TOTAL_STEPS += 1))
-    fi
-    if (( ! SKIP_SSH )); then
-        ((TOTAL_STEPS += 1))
-    fi
-    if (( ! SKIP_GITHUB )); then
-        ((TOTAL_STEPS += 1))
-    fi
+    local phase
+    TOTAL_STEPS=0
+    for phase in "${LEANIN_PHASES[@]}"; do
+        phase_enabled "$phase" && ((TOTAL_STEPS += 1))
+    done
 }
 
 packages_enabled() {
     (( (!SKIP_PACMAN && (${#PACMAN_CORE[@]} + ${#PACMAN_REST[@]} > 0)) \
         || !SKIP_FLATPAK || (!SKIP_AUR && ${#AUR_APPS[@]} > 0) ))
+}
+
+phase_enabled() {
+    case $1 in
+        system|plan|summary) return 0 ;;
+        packages) packages_enabled ;;
+        services) (( ! SKIP_SERVICES && (${#SYSTEM_SERVICES[@]} + ${#USER_SERVICES[@]} > 0) )) ;;
+        codex) (( ! SKIP_CODEX )) ;;
+        git) (( ! SKIP_GIT )) ;;
+        ssh) (( ! SKIP_SSH )) ;;
+        github) (( ! SKIP_GITHUB )) ;;
+        *) return 1 ;;
+    esac
 }
 
 install_packages() {
@@ -333,9 +345,107 @@ show_summary() {
     fi
 }
 
-leanin_main() {
-    local ssh_ready=0
+run_system_phase() {
+    if [[ $CI_MODE == 1 ]]; then
+        LOG_FILE=/dev/null
+        PACMAN_BLOCKED=0
+        ok 'modo CI dry-run'
+    else
+        arch || die 'este instalador suporta apenas Arch Linux'
+        ok 'Arch Linux detectado'
+        root && die 'não execute o leanin como root'
+        ok 'execução como usuário comum'
+        sudo
+        ok 'sudo disponível'
+        net
+        ok 'internet disponível'
+        lock
+        state
+        ok "log: $LOG_FILE"
+    fi
+}
 
+run_plan_phase() {
+    if ! validate_apps; then
+        warn 'há entradas com formato improvável; a instalação continuará'
+    fi
+    print_plan
+    print_services_plan
+    print_disabled_plan
+}
+
+run_packages_phase() {
+    install_packages
+}
+
+run_services_phase() {
+    activate_services
+}
+
+run_codex_phase() {
+    if configure_prefix; then
+        install_codex || true
+        configure_path
+    else
+        skip 'PATH do Codex não foi alterado'
+    fi
+}
+
+run_git_phase() {
+    configure_git || true
+}
+
+run_ssh_phase() {
+    if configure_ssh; then
+        PIPELINE_SSH_READY=1
+    fi
+}
+
+run_github_phase() {
+    if (( PIPELINE_SSH_READY )); then
+        github_manage_ssh_key "$SSH_PUBLIC_KEY"
+        if github_ssh_registration_ready; then
+            test_github_ssh || true
+        else
+            SSH_GITHUB_RESULT='pendente'
+            skip 'teste SSH GitHub pulado; cadastro da chave pendente'
+        fi
+    else
+        skip 'GitHub SSH pulado: chave local indisponível'
+        GITHUB_NEW_KEY_STATUS='chave local indisponível'
+    fi
+}
+
+run_summary_phase() {
+    show_summary
+}
+
+run_phase() {
+    case $1 in
+        system) run_system_phase ;;
+        plan) run_plan_phase ;;
+        packages) run_packages_phase ;;
+        services) run_services_phase ;;
+        codex) run_codex_phase ;;
+        git) run_git_phase ;;
+        ssh) run_ssh_phase ;;
+        github) run_github_phase ;;
+        summary) run_summary_phase ;;
+        *) return 1 ;;
+    esac
+}
+
+run_pipeline() {
+    local phase
+    PIPELINE_SSH_READY=0
+    for phase in "${LEANIN_PHASES[@]}"; do
+        phase_enabled "$phase" || continue
+        next_step "${LEANIN_PHASE_LABELS[$phase]}"
+        run_phase "$phase"
+    done
+}
+
+leanin_main() {
     parse_args "$@"
     collect_disabled_features
 
@@ -356,83 +466,6 @@ leanin_main() {
 
     load_plan
     calculate_total_steps
-
-    next_step 'sistema'
-    if [[ $CI_MODE == 1 ]]; then
-        LOG_FILE=/dev/null
-        PACMAN_BLOCKED=0
-        ok 'modo CI dry-run'
-    else
-        arch || die 'este instalador suporta apenas Arch Linux'
-        ok 'Arch Linux detectado'
-        root && die 'não execute o leanin como root'
-        ok 'execução como usuário comum'
-        sudo
-        ok 'sudo disponível'
-        net
-        ok 'internet disponível'
-        lock
-        state
-        ok "log: $LOG_FILE"
-    fi
-
-    next_step 'plano'
-    if ! validate_apps; then
-        warn 'há entradas com formato improvável; a instalação continuará'
-    fi
-    print_plan
-    print_services_plan
-    print_disabled_plan
-
-    if packages_enabled; then
-        next_step 'pacotes'
-        install_packages
-    fi
-
-    if (( ! SKIP_SERVICES && (${#SYSTEM_SERVICES[@]} + ${#USER_SERVICES[@]} > 0) )); then
-        next_step 'serviços'
-        activate_services
-    fi
-
-    if (( ! SKIP_CODEX )); then
-        next_step 'Codex'
-        if configure_prefix; then
-            install_codex || true
-            configure_path
-        else
-            skip 'PATH do Codex não foi alterado'
-        fi
-    fi
-
-    if (( ! SKIP_GIT )); then
-        next_step 'Git'
-        configure_git || true
-    fi
-
-    if (( ! SKIP_SSH )); then
-        next_step 'SSH'
-        if configure_ssh; then
-            ssh_ready=1
-        fi
-    fi
-
-    if (( ! SKIP_GITHUB )); then
-        next_step 'GitHub'
-        if (( ssh_ready )); then
-            github_manage_ssh_key "$SSH_PUBLIC_KEY"
-            if github_ssh_registration_ready; then
-                test_github_ssh || true
-            else
-                SSH_GITHUB_RESULT='pendente'
-                skip 'teste SSH GitHub pulado; cadastro da chave pendente'
-            fi
-        else
-            skip 'GitHub SSH pulado: chave local indisponível'
-            GITHUB_NEW_KEY_STATUS='chave local indisponível'
-        fi
-    fi
-
-    next_step 'resumo'
-    show_summary
+    run_pipeline
     ((${#FAILURES[@]} == 0))
 }
